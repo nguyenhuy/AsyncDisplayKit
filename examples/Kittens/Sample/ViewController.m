@@ -118,11 +118,23 @@ static const NSInteger kMaxLitterSize = 100;        // max number of kitten cell
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
   [_tableView deselectRowAtIndexPath:indexPath animated:YES];
-  [_tableView beginUpdates];
+
   // Assume only kitten nodes are selectable (see -tableView:shouldHighlightRowAtIndexPath:).
   KittenNode *node = (KittenNode *)[_tableView nodeForRowAtIndexPath:indexPath];
-  [node toggleImageEnlargement];
-  [_tableView endUpdates];
+  
+  [UIView animateWithDuration:0.5 animations:^{
+    // Fade the cell with the current size out
+    node.alpha = 0.1;
+  } completion:^(BOOL finished) {
+    [node toggleImageEnlargement];
+    [_tableView beginUpdates];
+    [_tableView endUpdates];
+
+    [UIView animateWithDuration:0.5 animations:^{
+      // Cell has the new layout (and size). Fade it in
+      node.alpha = 1;
+    }];
+  }];
 }
 
 - (ASCellNode *)tableView:(ASTableView *)tableView nodeForRowAtIndexPath:(NSIndexPath *)indexPath
