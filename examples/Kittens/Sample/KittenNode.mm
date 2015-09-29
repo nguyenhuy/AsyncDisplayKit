@@ -185,7 +185,7 @@ static const CGFloat kInnerPadding = 10.0f;
 - (void)toggleImageEnlargement
 {
   _isImageEnlarged = !_isImageEnlarged;
-  [self setNeedsLayout];
+  [self invalidateCalculatedLayout];
 }
 
 - (void)toggleNodesSwap

@@ -35,6 +35,7 @@ static const NSInteger kMaxLitterSize = 100;        // max number of kitten cell
 
 @property (nonatomic, strong) NSMutableArray *kittenDataSource;
 @property (atomic, assign) BOOL dataSourceLocked;
+@property (nonatomic, strong) NSIndexPath *selectedRow;
 
 @end
 
@@ -118,11 +119,13 @@ static const NSInteger kMaxLitterSize = 100;        // max number of kitten cell
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath
 {
   [_tableView deselectRowAtIndexPath:indexPath animated:YES];
-  [_tableView beginUpdates];
   // Assume only kitten nodes are selectable (see -tableView:shouldHighlightRowAtIndexPath:).
-  KittenNode *node = (KittenNode *)[_tableView nodeForRowAtIndexPath:indexPath];
-  [node toggleImageEnlargement];
-  [_tableView endUpdates];
+  if (_selectedRow != nil && [_selectedRow compare:indexPath] == NSOrderedSame) {
+    _selectedRow = nil;
+  } else {
+    _selectedRow = indexPath;
+  }
+  [_tableView reloadRowsAtIndexPaths:@[indexPath] withRowAnimation:UITableViewRowAnimationFade];
 }
 
 - (ASCellNode *)tableView:(ASTableView *)tableView nodeForRowAtIndexPath:(NSIndexPath *)indexPath
@@ -135,6 +138,9 @@ static const NSInteger kMaxLitterSize = 100;        // max number of kitten cell
 
   NSValue *size = _kittenDataSource[indexPath.row - 1];
   KittenNode *node = [[KittenNode alloc] initWithKittenOfSize:size.CGSizeValue];
+  if (_selectedRow != nil && [_selectedRow compare:indexPath] == NSOrderedSame) {
+    [node toggleImageEnlargement];
+  }
   return node;
 }
 
