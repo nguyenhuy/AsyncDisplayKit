@@ -251,7 +251,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
     _superIsPendingDataLoad = YES;
     [super reloadData];
   });
-  [_dataController reloadDataWithAnimationOptions:kASCollectionViewAnimationNone completion:completion];
+  [_dataController reloadDataWithCompletion:completion];
 }
 
 - (void)reloadData
@@ -263,7 +263,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
 {
   ASDisplayNodeAssertMainThread();
   _superIsPendingDataLoad = YES;
-  [_dataController reloadDataImmediatelyWithAnimationOptions:kASCollectionViewAnimationNone];
+  [_dataController reloadDataImmediately];
   [super reloadData];
 }
 
@@ -957,6 +957,25 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
     [_layoutFacilitator collectionViewWillEditSectionsAtIndexSet:indexSet batched:NO];
     [UIView performWithoutAnimation:^{
       [super deleteSections:indexSet];
+    }];
+  }
+}
+
+- (void)rangeControllerDidReloadData:(ASRangeController *)rangeController
+{
+  ASDisplayNodeAssertMainThread();
+  
+  if (!self.asyncDataSource || _superIsPendingDataLoad) {
+    return; // if the asyncDataSource has become invalid while we are processing, ignore this request to avoid crashes
+  }
+  
+  if (_performingBatchUpdates) {
+    [_batchUpdateBlocks addObject:^{
+      [super reloadData];
+    }];
+  } else {
+    [UIView performWithoutAnimation:^{
+      [super reloadData];
     }];
   }
 }

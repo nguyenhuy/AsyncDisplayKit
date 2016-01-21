@@ -296,4 +296,12 @@
   });
 }
 
+- (void)dataControllerDidReloadData:(ASDataController *)dataController
+{
+  ASPerformBlockOnMainThread(^{
+    _rangeIsValid = NO;
+    [_delegate rangeControllerDidReloadData:self];
+  });
+}
+
 @end
