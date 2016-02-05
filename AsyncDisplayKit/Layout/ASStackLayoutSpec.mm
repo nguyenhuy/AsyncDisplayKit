@@ -134,6 +134,10 @@
 
 - (ASLayout *)measureWithSizeRange:(ASSizeRange)constrainedSize
 {
+#if DEBUG
+  self.lastMeasureConstrainedSize = constrainedSize;
+#endif
+
   if (self.children.count == 0) {
     return [ASLayout layoutWithLayoutableObject:self size:constrainedSize.min];
   }

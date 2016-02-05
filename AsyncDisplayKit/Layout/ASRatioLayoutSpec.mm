@@ -49,6 +49,10 @@
 
 - (ASLayout *)measureWithSizeRange:(ASSizeRange)constrainedSize
 {
+#if DEBUG
+  self.lastMeasureConstrainedSize = constrainedSize;
+#endif
+
   std::vector<CGSize> sizeOptions;
   if (!isinf(constrainedSize.max.width)) {
     sizeOptions.push_back(ASSizeRangeClamp(constrainedSize, {

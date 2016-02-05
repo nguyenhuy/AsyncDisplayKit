@@ -23,6 +23,10 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (nonatomic, assign) BOOL isMutable;
 
+#ifdef DEBUG
+@property (nonatomic, assign) ASSizeRange lastMeasureConstrainedSize;
+#endif
+
 - (instancetype)init;
 
 /**

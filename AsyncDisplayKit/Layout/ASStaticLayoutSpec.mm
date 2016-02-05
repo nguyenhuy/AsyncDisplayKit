@@ -38,6 +38,10 @@
 
 - (ASLayout *)measureWithSizeRange:(ASSizeRange)constrainedSize
 {
+#if DEBUG
+  self.lastMeasureConstrainedSize = constrainedSize;
+#endif
+
   CGSize maxConstrainedSize = CGSizeMake(constrainedSize.max.width, constrainedSize.max.height);
   
   NSArray *children = self.children;

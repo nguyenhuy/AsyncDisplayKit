@@ -1846,6 +1846,11 @@ void recursivelyTriggerDisplayForLayer(CALayer *layer, BOOL shouldBlock)
     ASLayoutSpec *layoutSpec = [self layoutSpecThatFits:constrainedSize];
     layoutSpec.isMutable = NO;
     ASLayout *layout = [layoutSpec measureWithSizeRange:constrainedSize];
+      
+      if ([self shouldPrintAsiccArt]) {
+          NSLog(@"\n%@", [layoutSpec asciiArtString]);
+      }
+      
     // Make sure layoutableObject of the root layout is `self`, so that the flattened layout will be structurally correct.
     if (layout.layoutableObject != self) {
       layout.position = CGPointZero;
@@ -2696,16 +2701,31 @@ static const char *ASDisplayNodeDrawingPriorityKey = "ASDrawingPriority";
   return subtree;
 }
 
+- (BOOL)shouldPrintAsiccArt
+{
+    return NO;
+}
+
 #pragma mark - ASLayoutableAsciiArtProtocol
 
 - (NSString *)asciiArtString
 {
-    return [ASLayoutSpec asciiArtStringForChildren:@[] parentName:[self asciiArtName]];
+  return [ASLayoutSpec asciiArtStringForChildren:@[] parentName:[self asciiArtName]];
 }
 
 - (NSString *)asciiArtName
 {
+  if (_flags.isMeasured) {
+    CGSize minSize = _constrainedSize.min;
+    CGSize maxSize = _constrainedSize.max;
+      NSString *(^numberFormatter)(CGFloat) = ^NSString *(CGFloat number) {
+          return number < 999999 ? [NSString stringWithFormat:@"%.0f", number] : @"big";
+      };
+      return [NSString stringWithFormat:@"%@ (%@ %@ - %@ %@)", NSStringFromClass([self class]),
+              numberFormatter(minSize.width), numberFormatter(minSize.height), numberFormatter(maxSize.width), numberFormatter(maxSize.height)];
+  } else {
     return NSStringFromClass([self class]);
+  }
 }
 
 @end

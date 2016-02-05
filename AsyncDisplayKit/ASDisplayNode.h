@@ -584,6 +584,8 @@ NS_ASSUME_NONNULL_BEGIN
  */
 - (NSString *)displayNodeRecursiveDescription;
 
+- (BOOL)shouldPrintAsiccArt;
+
 @end
 
 NS_ASSUME_NONNULL_END

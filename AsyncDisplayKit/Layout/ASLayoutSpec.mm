@@ -47,6 +47,10 @@ static NSString * const kDefaultChildrenKey = @"kDefaultChildrenKey";
 
 - (ASLayout *)measureWithSizeRange:(ASSizeRange)constrainedSize
 {
+#if DEBUG
+  self.lastMeasureConstrainedSize = constrainedSize;
+#endif
+  
   return [ASLayout layoutWithLayoutableObject:self size:constrainedSize.min];
 }
 
@@ -162,7 +166,13 @@ static NSString * const kDefaultChildrenKey = @"kDefaultChildrenKey";
 
 - (NSString *)asciiArtName
 {
-  return NSStringFromClass([self class]);
+  CGSize minSize = _lastMeasureConstrainedSize.min;
+  CGSize maxSize = _lastMeasureConstrainedSize.max;
+    NSString *(^numberFormatter)(CGFloat) = ^NSString *(CGFloat number) {
+        return number < 999999 ? [NSString stringWithFormat:@"%.0f", number] : @"big";
+    };
+    return [NSString stringWithFormat:@"%@ (%@ %@ - %@ %@)", NSStringFromClass([self class]),
+            numberFormatter(minSize.width), numberFormatter(minSize.height), numberFormatter(maxSize.width), numberFormatter(maxSize.height)];
 }
 
 @end

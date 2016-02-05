@@ -54,6 +54,10 @@
 
 - (ASLayout *)measureWithSizeRange:(ASSizeRange)constrainedSize
 {
+#if DEBUG
+  self.lastMeasureConstrainedSize = constrainedSize;
+#endif
+
   CGSize size = {
     constrainedSize.max.width,
     constrainedSize.max.height
