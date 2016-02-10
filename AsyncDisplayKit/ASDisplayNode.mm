@@ -1846,11 +1846,13 @@ void recursivelyTriggerDisplayForLayer(CALayer *layer, BOOL shouldBlock)
     ASLayoutSpec *layoutSpec = [self layoutSpecThatFits:constrainedSize];
     layoutSpec.isMutable = NO;
     ASLayout *layout = [layoutSpec measureWithSizeRange:constrainedSize];
-      
-      if ([self shouldPrintAsiccArt]) {
-          NSLog(@"\n%@", [layoutSpec asciiArtString]);
-      }
-      
+    
+#if DEBUG
+    if ([self shouldPrintAsiccArt]) {
+      NSLog(@"\n%@", [layoutSpec asciiArtString]);
+    }
+#endif
+    
     // Make sure layoutableObject of the root layout is `self`, so that the flattened layout will be structurally correct.
     if (layout.layoutableObject != self) {
       layout.position = CGPointZero;
