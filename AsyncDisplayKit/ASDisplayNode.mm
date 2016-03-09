@@ -639,24 +639,28 @@ static ASDisplayNodeMethodOverrides GetASDisplayNodeMethodOverrides(Class c)
                 measurementCompletion:(void(^)())completion
 {
   ASDisplayNodeAssertMainThread();
+  if (! [self shouldMeasureWitSizeRange:constrainedSize]) {
+    return;
+  }
+
+  ASSentinel *sentinel = self._asyncMeasureSentinel;
+  int64_t asyncMeasureSentinelValue = [sentinel increment];
+  asdisplaynode_iscancelled_block_t isCancelledBlock = ^{
+    //TODO check measurement layout flag as well
+    return asyncMeasureSentinelValue != sentinel.value;
+  };
   
   void (^transitionBlock)() = ^{
-    if (! [self shouldMeasureWitSizeRange:constrainedSize]) {
-      return;
-    }
-    
-    ASSentinel *sentinel = self._asyncMeasureSentinel;
-    int64_t asyncMeasureSentinelValue = [sentinel increment];
-    asdisplaynode_iscancelled_block_t isCancelledBlock = ^{
-      //TODO check pending layout as well
-      return asyncMeasureSentinelValue != sentinel.value;
-    };
-    
+    //TODO Recursively set pending layout on subnodes
     ASLayout *newLayout;
     {
       ASDN::MutexLocker l(_propertyLock);
-      //TODO Recursively set pending layout on subnodes
+      BOOL disableImplicitHierarchyManagement = self.usesImplicitHierarchyManagement == NO;
+      self.usesImplicitHierarchyManagement = YES; // Temporary flag for 1.9.x
       newLayout = [self calculateLayoutThatFits:constrainedSize];
+      if (disableImplicitHierarchyManagement) {
+        self.usesImplicitHierarchyManagement = NO; // Temporary flag for 1.9.x
+      }
     }
     
     if (isCancelledBlock()) {
@@ -675,6 +679,10 @@ static ASDisplayNodeMethodOverrides GetASDisplayNodeMethodOverrides(Class c)
       [self setCalculatedLayout:newLayout];
       _constrainedSize = constrainedSize;
       _flags.isMeasured = YES;
+      
+      if (completion) {
+        completion();
+      }
       
       _layoutContext = [[ASDisplayNodeLayoutContext alloc] initWithNode:self
                                                          previousLayout:previousLayout

@@ -64,7 +64,7 @@ ASDISPLAYNODE_EXTERN_C_END
  * @param shouldMeasureAsync Measure the layout asynchronously.
  *
  * @param measurementCompletion Optional completion block called only if a new layout is calculated.
- * It is called right after the measurement and before -animateLayoutTransition:.
+ * It is called on main, right after the measurement and before -animateLayoutTransition:.
  *
  * @discussion If the passed constrainedSize is the the same as the node's current constrained size, this method is noop.
  *
