@@ -120,18 +120,6 @@ extern BOOL CGPointIsNull(CGPoint point);
                                       size:(CGSize)size;
 
 /**
- * Convenience initializer that is flattened and has CGPointNull position.
- *
- * @param layoutableObject The backing ASLayoutable object.
- * @param size The size of this layout.
- * @param sublayouts Sublayouts belong to the new layout.
- */
-+ (instancetype)flattenedLayoutWithLayoutableObject:(id<ASLayoutable>)layoutableObject
-                               constrainedSizeRange:(ASSizeRange)sizeRange
-                                               size:(CGSize)size
-                                         sublayouts:(nullable NSArray<ASLayout *> *)sublayouts;
-
-/**
  * Convenience initializer that creates a layout based on the values of the given layout, with a new position
  * @param layout    The layout to use to create the new layout
  * @param position  The position of the new layout

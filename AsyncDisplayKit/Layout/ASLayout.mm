@@ -118,18 +118,6 @@ extern BOOL CGPointIsNull(CGPoint point)
                                sublayouts:nil];
 }
 
-+ (instancetype)flattenedLayoutWithLayoutableObject:(id<ASLayoutable>)layoutableObject
-                               constrainedSizeRange:(ASSizeRange)sizeRange
-                                               size:(CGSize)size
-                                         sublayouts:(nullable NSArray<ASLayout *> *)sublayouts
-{
-  return [self layoutWithLayoutableObject:layoutableObject
-                     constrainedSizeRange:sizeRange
-                                     size:size
-                                 position:CGPointNull
-                               sublayouts:sublayouts];
-}
-
 + (instancetype)layoutWithLayout:(ASLayout *)layout position:(CGPoint)position
 {
   return [self layoutWithLayoutableObject:layout.layoutableObject

@@ -34,6 +34,7 @@ typedef struct {
 } ASSizeRange;
 
 extern ASRelativeDimension const ASRelativeDimensionUnconstrained;
+extern ASSizeRange const ASSizeRangeUnconstrained;
 
 #define isValidForLayout(x) ((isnormal(x) || x == 0.0) && x >= 0.0 && x < (CGFLOAT_MAX / 2.0))
 

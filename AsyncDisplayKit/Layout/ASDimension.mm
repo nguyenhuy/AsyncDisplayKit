@@ -12,6 +12,7 @@
 #import "ASAssert.h"
 
 ASRelativeDimension const ASRelativeDimensionUnconstrained = {};
+ASSizeRange const ASSizeRangeUnconstrained = ASSizeRangeMake(CGSizeZero, CGSizeMake(FLT_MAX, FLT_MAX));
 
 #pragma mark ASRelativeDimension
 
