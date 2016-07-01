@@ -60,11 +60,11 @@
   // Need to strongly hold layoutable objects here because ASLayout.layoutableObject is a weak reference
   NSMutableArray<ASDisplayNode *> *subnodes = [NSMutableArray array];
   NSMutableArray<ASLayout *> *flattenedSublayouts = [NSMutableArray array];
-  static int numberOfSubnodes = 5;
+  int numberOfSubnodes = 0;
   CGSize subnodesSize = CGSizeMake(100, 100);
   CGPoint subnodesPosition = CGPointMake(10, 10);
   
-  for (int i = 0; i < numberOfSubnodes; i++) {
+  for (int i = 0; i < 5; i++) {
     ASDisplayNode *subsubnode = [[ASDisplayNode alloc] init];
     [subnodes addObject:subsubnode];
     
@@ -83,6 +83,7 @@
                                                     sublayouts:@[subsublayout]];
     [flattenedSublayouts addObject:[ASLayout layoutWithLayout:[sublayout filteredNodeLayoutTree]
                                                      position:subnodesPosition]];
+    numberOfSubnodes++;
   }
   
   CGPoint insetLayoutPosition = CGPointMake(10, 10);
@@ -119,11 +120,11 @@
   // Need to strongly hold layoutable objects here because ASLayout.layoutableObject is a weak reference
   NSMutableArray<ASDisplayNode *> *subnodes = [NSMutableArray array];
   NSMutableArray<ASLayout *> *flattenedSublayouts = [NSMutableArray array];
-  static int numberOfSubnodes = 5;
+  int numberOfSubnodes = 0;
   CGSize subnodesSize = CGSizeMake(100, 100);
   CGPoint subnodesPosition = CGPointMake(10, 10);
   
-  for (int i = 0; i < numberOfSubnodes; i++) {
+  for (int i = 0; i < 5; i++) {
     ASDisplayNode *subsubnode = [[ASDisplayNode alloc] init];
     [subnodes addObject:subsubnode];
     
@@ -142,6 +143,7 @@
                                                       position:subnodesPosition
                                                     sublayouts:@[subsublayout]];
     [flattenedSublayouts addObject:sublayout];
+    numberOfSubnodes += 2;
   }
   
   CGPoint insetLayoutPosition = CGPointMake(10, 10);
