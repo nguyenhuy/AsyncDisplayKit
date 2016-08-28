@@ -11,6 +11,7 @@
 #import "ASDataController.h"
 
 #import "ASAssert.h"
+#import "ASSection.h"
 #import "ASCellNode.h"
 #import "ASEnvironmentInternal.h"
 #import "ASLayout.h"
@@ -21,8 +22,8 @@
 #import "ASDataController+Subclasses.h"
 #import "ASDispatch.h"
 
-//#define LOG(...) NSLog(__VA_ARGS__)
-#define LOG(...)
+#define LOG(...) NSLog(__VA_ARGS__)
+//#define LOG(...)
 
 #define AS_MEASURE_AVOIDED_DATACONTROLLER_WORK 0
 
@@ -43,9 +44,9 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
 #endif
 
 @interface ASDataController () {
-  NSMutableArray *_externalCompletedNodes;    // Main thread only.  External data access can immediately query this if available.
-  NSMutableDictionary *_completedNodes;       // Main thread only.  External data access can immediately query this if _externalCompletedNodes is unavailable.
-  NSMutableDictionary *_editingNodes;         // Modified on _editingTransactionQueue only.  Updates propagated to _completedNodes.
+  NSArray<ASSection *> *_externalCompletedNodes;    // Main thread only.  External data access can immediately query this if available.
+  NSMutableDictionary<NSString *, NSMutableArray<ASSection *> *> *_completedNodes;       // Main thread only.  External data access can immediately query this if _externalCompletedNodes is unavailable.
+  NSMutableDictionary<NSString *, NSMutableArray<ASSection *> *> *_editingNodes;         // Modified on _editingTransactionQueue only.  Updates propagated to _completedNodes.
   BOOL _itemCountsFromDataSourceAreValid;     // Main thread only.
   std::vector<NSInteger> _itemCountsFromDataSource;         // Main thread only.
   
@@ -56,6 +57,8 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   
   BOOL _initialReloadDataHasBeenCalled;
 
+  BOOL _dataSourceContextForSectionAtIndex;
+  
   BOOL _delegateDidInsertNodes;
   BOOL _delegateDidDeleteNodes;
   BOOL _delegateDidInsertSections;
@@ -76,6 +79,7 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   ASDisplayNodeAssert(![self isMemberOfClass:[ASDataController class]], @"ASDataController is an abstract class and should not be instantiated. Instantiate a subclass instead.");
   
   _dataSource = dataSource;
+  _dataSourceContextForSectionAtIndex = [_dataSource respondsToSelector:@selector(dataController:contextForSectionAtIndex:)];
   
   _completedNodes = [NSMutableDictionary dictionary];
   _editingNodes = [NSMutableDictionary dictionary];
@@ -234,7 +238,7 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(editingNodes, indexPaths, nodes);
   
   // Deep copy is critical here, or future edits to the sub-arrays will pollute state between _editing and _complete on different threads.
-  NSMutableArray *completedNodes = ASTwoDimensionalArrayDeepMutableCopy(editingNodes);
+  NSMutableArray<ASSection *> *completedNodes = (NSMutableArray<ASSection *> *)ASArrayDeepMutableCopy(editingNodes);
   
   [_mainSerialQueue performBlockOnMainThread:^{
     _completedNodes[kind] = completedNodes;
@@ -263,7 +267,7 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   }];
 }
 
-- (void)insertSections:(NSMutableArray *)sections ofKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet completion:(void (^)(NSArray *sections, NSIndexSet *indexSet))completionBlock
+- (void)insertSections:(NSArray<ASSection *> *)sections ofKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet completion:(void (^)(NSArray<ASSection *> *, NSIndexSet *))completionBlock
 {
   if (!indexSet.count|| _dataSource == nil) {
     return;
@@ -276,7 +280,7 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   [_editingNodes[kind] insertObjects:sections atIndexes:indexSet];
   
   // Deep copy is critical here, or future edits to the sub-arrays will pollute state between _editing and _complete on different threads.
-  NSArray *sectionsForCompleted = ASTwoDimensionalArrayDeepMutableCopy(sections);
+  NSArray *sectionsForCompleted = ASArrayDeepMutableCopy(sections);
   
   [_mainSerialQueue performBlockOnMainThread:^{
     [_completedNodes[kind] insertObjects:sectionsForCompleted atIndexes:indexSet];
@@ -291,6 +295,12 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   if (!indexSet.count || _dataSource == nil) {
     return;
   }
+  
+  [indexSet enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL * _Nonnull stop) {
+    if (idx >= _editingNodes[kind].count) {
+      NSLog(@"here");
+    }
+  }];
   
   [_editingNodes[kind] removeObjectsAtIndexes:indexSet];
   [_mainSerialQueue performBlockOnMainThread:^{
@@ -340,16 +350,16 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
 }
 
 /**
- * Inserts sections, represented as arrays, into the backing store at the given indices and notifies the delegate.
+ * Inserts sections into the backing store at the given indices and notifies the delegate.
  *
- * @discussion The section arrays are inserted into the editing store, then a deep copy of the sections are inserted
+ * @discussion The sections are inserted into the editing store, then a deep copy of the sections are inserted
  * in the completed store on the main thread. The delegate is invoked on the main thread.
  */
-- (void)_insertSections:(NSMutableArray *)sections atIndexSet:(NSIndexSet *)indexSet withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
+- (void)_insertSections:(NSArray<ASSection *> *)sections atIndexSet:(NSIndexSet *)indexSet withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
 {
   ASSERT_ON_EDITING_QUEUE;
   
-  [self insertSections:sections ofKind:ASDataControllerRowNodeKind atIndexSet:indexSet completion:^(NSArray *sections, NSIndexSet *indexSet) {
+  [self insertSections:sections ofKind:ASDataControllerRowNodeKind atIndexSet:indexSet completion:^(NSArray<ASSection *> *sections, NSIndexSet *indexSet) {
     ASDisplayNodeAssertMainThread();
     
     if (_delegateDidInsertSections)
@@ -397,7 +407,8 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   [self invalidateDataSourceItemCounts];
   NSUInteger sectionCount = [self itemCountsFromDataSource].size();
   NSIndexSet *sectionIndexSet = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
-  NSArray<ASIndexedNodeContext *> *contexts = [self _populateFromDataSourceWithSectionIndexSet:sectionIndexSet];
+  NSArray<ASSection *> *sections = [self populateSectionsFromDataSourceOfKind:ASDataControllerRowNodeKind atIndexSet:sectionIndexSet];
+  NSArray<ASIndexedNodeContext *> *nodeContexts = [self _populateNodeContextsFromDataSourceWithSectionIndexSet:sectionIndexSet];
   
   // Allow subclasses to perform setup before going into the edit transaction
   [self prepareForReloadDataWithSectionCount:sectionCount];
@@ -417,14 +428,9 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
     
     [self willReloadDataWithSectionCount:sectionCount];
     
-    // Insert empty sections
-    NSMutableArray *sections = [NSMutableArray arrayWithCapacity:sectionCount];
-    for (int i = 0; i < sectionCount; i++) {
-      [sections addObject:[[NSMutableArray alloc] init]];
-    }
     [self _insertSections:sections atIndexSet:sectionIndexSet withAnimationOptions:animationOptions];
 
-    [self _batchLayoutAndInsertNodesFromContexts:contexts withAnimationOptions:animationOptions];
+    [self _batchLayoutAndInsertNodesFromContexts:nodeContexts withAnimationOptions:animationOptions];
 
     if (completion) {
       [_mainSerialQueue performBlockOnMainThread:completion];
@@ -448,10 +454,24 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
 
 #pragma mark - Data Source Access (Calling _dataSource)
 
+- (NSArray<ASSection *> *)populateSectionsFromDataSourceOfKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet
+{
+  NSMutableArray<ASSection *> *sections = [NSMutableArray arrayWithCapacity:indexSet.count];
+  [indexSet enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL * _Nonnull stop) {
+    ASSection *section = [[ASSection alloc] init];
+    // Data source doesn't provide different section contexts for each kind (yet). Retrieve the context only if it is row node kind.  
+    if (_dataSourceContextForSectionAtIndex && [kind isEqualToString:ASDataControllerRowNodeKind]) {
+      section.context = [_dataSource dataController:self contextForSectionAtIndex:idx];
+    }
+    [sections addObject:section];
+  }];
+  return sections;
+}
+
 /**
- * Fetches row contexts for the provided sections from the data source.
+ * Fetches node contexts for the provided sections from the data source.
  */
-- (NSArray<ASIndexedNodeContext *> *)_populateFromDataSourceWithSectionIndexSet:(NSIndexSet *)indexSet
+- (NSArray<ASIndexedNodeContext *> *)_populateNodeContextsFromDataSourceWithSectionIndexSet:(NSIndexSet *)indexSet
 {
   ASDisplayNodeAssertMainThread();
   
@@ -513,7 +533,7 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
     [_mainSerialQueue performBlockOnMainThread:^{
       // Deep copy _completedNodes to _externalCompletedNodes.
       // Any external queries from now on will be done on _externalCompletedNodes, to guarantee data consistency with the delegate.
-      _externalCompletedNodes = ASTwoDimensionalArrayDeepMutableCopy(_completedNodes[ASDataControllerRowNodeKind]);
+      _externalCompletedNodes = (NSArray<ASSection *> *)ASArrayDeepMutableCopy(_completedNodes[ASDataControllerRowNodeKind]);
 
       LOG(@"beginUpdates - begin updates call to delegate");
       [_delegate dataControllerBeginUpdates:self];
@@ -556,7 +576,8 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
 
   dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
   
-  NSArray<ASIndexedNodeContext *> *contexts = [self _populateFromDataSourceWithSectionIndexSet:sections];
+  NSArray<ASSection *> *sectionsArray = [self populateSectionsFromDataSourceOfKind:ASDataControllerRowNodeKind atIndexSet:sections];
+  NSArray<ASIndexedNodeContext *> *contexts = [self _populateNodeContextsFromDataSourceWithSectionIndexSet:sections];
 
   [self prepareForInsertSections:sections];
   
@@ -564,12 +585,7 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
     [self willInsertSections:sections];
 
     LOG(@"Edit Transaction - insertSections: %@", sections);
-    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sections.count];
-    for (NSUInteger i = 0; i < sections.count; i++) {
-      [sectionArray addObject:[NSMutableArray array]];
-    }
-
-    [self _insertSections:sectionArray atIndexSet:sections withAnimationOptions:animationOptions];
+    [self _insertSections:sectionsArray atIndexSet:sections withAnimationOptions:animationOptions];
     
     [self _batchLayoutAndInsertNodesFromContexts:contexts withAnimationOptions:animationOptions];
   });
@@ -634,6 +650,13 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
   });
 }
 
+- (nullable ASSectionContext *)contextForSectionAtIndex:(NSInteger)sectionIndex
+{
+  ASDisplayNodeAssertMainThread();
+  NSArray<ASSection *> *sections = [self completedNodes];
+  ASDisplayNodeAssertTrue(sectionIndex >= 0 && sectionIndex < sections.count);
+  return sections[sectionIndex].context;
+}
 
 #pragma mark - Backing store manipulation optional hooks (Subclass API)
 
@@ -824,18 +847,18 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
 
 #pragma mark - Data Querying (Subclass API)
 
-- (NSArray *)indexPathsForEditingNodesOfKind:(NSString *)kind
+- (NSArray<NSIndexPath *> *)indexPathsForEditingNodesOfKind:(NSString *)kind
 {
   NSArray *nodes = _editingNodes[kind];
   return nodes != nil ? ASIndexPathsForTwoDimensionalArray(nodes) : nil;
 }
 
-- (NSMutableArray *)editingNodesOfKind:(NSString *)kind
+- (NSMutableArray<ASSection *> *)editingNodesOfKind:(NSString *)kind
 {
   return _editingNodes[kind] ? : [NSMutableArray array];
 }
 
-- (NSMutableArray *)completedNodesOfKind:(NSString *)kind
+- (NSMutableArray<ASSection *> *)completedNodesOfKind:(NSString *)kind
 {
   return _completedNodes[kind];
 }
@@ -892,7 +915,7 @@ NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
 }
 
 /// Returns nodes that can be queried externally. _externalCompletedNodes is used if available, _completedNodes otherwise.
-- (NSArray *)completedNodes
+- (NSArray<ASSection *> *)completedNodes
 {
   ASDisplayNodeAssertMainThread();
   return _externalCompletedNodes ? : _completedNodes[ASDataControllerRowNodeKind];

@@ -11,6 +11,7 @@
 #pragma once
 #import <vector>
 
+@class ASSection;
 @class ASIndexedNodeContext;
 
 typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths);
@@ -22,17 +23,21 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCellNode *> *nodes, NS
 /**
  * Provides a collection of index paths for nodes of the given kind that are currently in the editing store
  */
-- (NSArray *)indexPathsForEditingNodesOfKind:(NSString *)kind;
+- (NSArray<NSIndexPath *> *)indexPathsForEditingNodesOfKind:(NSString *)kind;
 
 /**
  * Read-only access to the underlying editing nodes of the given kind
  */
-- (NSMutableArray *)editingNodesOfKind:(NSString *)kind;
+- (NSMutableArray<ASSection *> *)editingNodesOfKind:(NSString *)kind;
 
 /**
  * Read only access to the underlying completed nodes of the given kind
  */
-- (NSMutableArray *)completedNodesOfKind:(NSString *)kind;
+- (NSMutableArray<ASSection *> *)completedNodesOfKind:(NSString *)kind;
+
+#pragma mark - Data Source Access (Calling _dataSource)
+
+- (NSArray<ASSection *> *)populateSectionsFromDataSourceOfKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet;
 
 /**
  * Ensure that next time `itemCountsFromDataSource` is called, new values are retrieved.
@@ -79,7 +84,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCellNode *> *nodes, NS
 /**
  * Inserts the given sections of the specified kind in the backing store, calling completion on the main thread when finished.
  */
-- (void)insertSections:(NSMutableArray *)sections ofKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet completion:(void (^)(NSArray *sections, NSIndexSet *indexSet))completionBlock;
+- (void)insertSections:(NSArray<ASSection *> *)sections ofKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet completion:(void (^)(NSArray<ASSection *> *sections, NSIndexSet *indexSet))completionBlock;
 
 /**
  * Deletes the given sections of the specified kind in the backing store, calling completion on the main thread when finished.

@@ -10,6 +10,8 @@
 
 #import "ASAssert.h"
 #import "ASMultidimensionalArrayUtils.h"
+#import "ASSection.h"
+#import "ASDisplayNode.h"
 
 // Import UIKit to get [NSIndexPath indexPathForItem:inSection:] which uses
 // static memory addresses rather than allocating new index path objects.
@@ -51,7 +53,7 @@ static void ASRecursivelyUpdateMultidimensionalArrayAtIndexPaths(NSMutableArray 
 
 static void ASRecursivelyFindIndexPathsForMultidimensionalArray(NSObject *obj, NSIndexPath *curIndexPath, NSMutableArray <NSIndexPath *>*res)
 {
-  if (![obj isKindOfClass:[NSArray class]]) {
+  if ([obj isKindOfClass:[ASDisplayNode class]]) {
     [res addObject:curIndexPath];
   } else {
     NSArray *array = (NSArray *)obj;
@@ -107,12 +109,11 @@ NSObject<NSCopying> *ASMultidimensionalArrayDeepMutableCopy(NSObject<NSCopying> 
   return obj;
 }
 
-NSMutableArray<NSMutableArray *> *ASTwoDimensionalArrayDeepMutableCopy(NSArray<NSArray *> *array)
+extern NSMutableArray<id<NSMutableCopying>> *ASArrayDeepMutableCopy(NSArray<id<NSMutableCopying>> *array)
 {
   NSMutableArray *newArray = [NSMutableArray arrayWithCapacity:array.count];
-  for (NSArray *subarray in array) {
-    ASDisplayNodeCAssert([subarray isKindOfClass:[NSArray class]], @"This function expects NSArray<NSArray *> *");
-    [newArray addObject:[subarray mutableCopy]];
+  for (id obj in array) {
+    [newArray addObject:[obj mutableCopy]];
   }
   return newArray;
 }
@@ -194,13 +195,12 @@ NSArray<NSIndexPath *> *ASIndexPathsInMultidimensionalArrayIntersectingIndexPath
   return res;
 }
 
-NSArray *ASIndexPathsForTwoDimensionalArray(NSArray <NSArray *>* twoDimensionalArray)
+extern NSArray *ASIndexPathsForTwoDimensionalArray(NSArray *twoDimensionalArray)
 {
   NSMutableArray *result = [NSMutableArray array];
   NSUInteger section = 0;
-  for (NSArray *subarray in twoDimensionalArray) {
-    ASDisplayNodeCAssert([subarray isKindOfClass:[NSArray class]], @"This function expects NSArray<NSArray *> *");
-    for (NSUInteger item = 0; item < subarray.count; item++) {
+  for (id subarray in twoDimensionalArray) {
+    for (NSUInteger item = 0; item < [subarray count]; item++) {
       [result addObject:[NSIndexPath indexPathForItem:item inSection:section]];
     }
     section++;

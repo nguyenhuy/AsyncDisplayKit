@@ -20,10 +20,10 @@
 ASDISPLAYNODE_EXTERN_C_BEGIN
 
 /**
- * Deep mutable copy of an array that contains arrays, which contain objects.  It will go one level deep into the array to copy.
+ * Deep mutable copy of an array that contains objects that support deep mutable copying.  It will go one level deep into the array to copy.
  * This method is substantially faster than the generalized version, e.g. about 10x faster, so use it whenever it fits the need.
  */
-extern NSMutableArray<NSMutableArray *> *ASTwoDimensionalArrayDeepMutableCopy(NSArray<NSArray *> *array);
+extern NSMutableArray<id<NSMutableCopying>> *ASArrayDeepMutableCopy(NSArray<id<NSMutableCopying>> *array);
 
 /**
  * Deep mutable copy of multidimensional array.  This is completely generalized and supports copying mixed-depth arrays,
@@ -59,7 +59,7 @@ extern NSArray<NSIndexPath *> *ASIndexPathsInMultidimensionalArrayIntersectingIn
 /**
  * Return all the index paths of a two-dimensional array, in ascending order.
  */
-extern NSArray *ASIndexPathsForTwoDimensionalArray(NSArray <NSArray *>* twoDimensionalArray);
+extern NSArray *ASIndexPathsForTwoDimensionalArray(NSArray *twoDimensionalArray);
 
 /**
  * Return all the index paths of a multidimensional array, in ascending order.

@@ -19,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class ASCellNode;
 @class ASDataController;
+@class ASSection;
+@class ASSectionContext;
 @protocol ASEnvironment;
 
 typedef NSUInteger ASDataControllerAnimationOptions;
@@ -57,6 +59,10 @@ FOUNDATION_EXPORT NSString * const ASDataControllerRowNodeKind;
  */
 - (NSUInteger)numberOfSectionsInDataController:(ASDataController *)dataController;
 
+@optional
+
+- (nullable ASSectionContext *)dataController:(ASDataController *)dataController contextForSectionAtIndex:(NSInteger)sectionIndex;
+
 @end
 
 @protocol ASDataControllerEnvironmentDelegate
@@ -90,7 +96,7 @@ FOUNDATION_EXPORT NSString * const ASDataControllerRowNodeKind;
 /**
  Called for insertion of sections.
  */
-- (void)dataController:(ASDataController *)dataController didInsertSections:(NSArray<NSArray<ASCellNode *> *> *)sections atIndexSet:(NSIndexSet *)indexSet withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions;
+- (void)dataController:(ASDataController *)dataController didInsertSections:(NSArray<ASSection *> *)sections atIndexSet:(NSIndexSet *)indexSet withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions;
 
 /**
  Called for deletion of sections.
@@ -151,6 +157,8 @@ FOUNDATION_EXPORT NSString * const ASDataControllerRowNodeKind;
 
 - (void)moveSection:(NSInteger)section toSection:(NSInteger)newSection withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions;
 
+- (nullable ASSectionContext *)contextForSectionAtIndex:(NSInteger)sectionIndex;
+
 - (void)insertRowsAtIndexPaths:(NSArray<NSIndexPath *> *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions;
 
 - (void)deleteRowsAtIndexPaths:(NSArray<NSIndexPath *> *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions;
@@ -186,7 +194,7 @@ FOUNDATION_EXPORT NSString * const ASDataControllerRowNodeKind;
 /**
  * Direct access to the nodes that have completed calculation and layout
  */
-- (NSArray<NSArray <ASCellNode *> *> *)completedNodes;
+- (NSArray<ASSection *> *)completedNodes;
 
 @end
 

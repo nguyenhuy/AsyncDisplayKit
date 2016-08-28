@@ -152,9 +152,9 @@ ASDISPLAYNODE_EXTERN_C_END
   if (ASEnvironmentTraitCollectionIsEqualToASEnvironmentTraitCollection(currentTraits, oldTraits) == NO) {\
     /* Must dispatch to main for self.view && [self.view.dataController completedNodes]*/ \
     ASPerformBlockOnMainThread(^{\
-      NSArray<NSArray <ASCellNode *> *> *completedNodes = [self.view.dataController completedNodes];\
-      for (NSArray *sectionArray in completedNodes) {\
-        for (ASCellNode *cellNode in sectionArray) {\
+      NSArray<ASSection *> *completedNodes = [self.view.dataController completedNodes];\
+      for (ASSection *section in completedNodes) {\
+        for (ASCellNode *cellNode in section) {\
           ASEnvironmentStatePropagateDown(cellNode, currentTraits);\
         }\
       }\

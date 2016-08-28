@@ -13,7 +13,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class ASCellNode;
+@class ASSection;
 
 typedef NS_ENUM(NSUInteger, ASFlowLayoutDirection) {
   ASFlowLayoutDirectionVertical,
@@ -22,7 +22,7 @@ typedef NS_ENUM(NSUInteger, ASFlowLayoutDirection) {
 
 @protocol ASFlowLayoutControllerDataSource
 
-- (NSArray<NSArray <ASCellNode *> *> *)completedNodes;  // This provides access to ASDataController's _completedNodes multidimensional array.
+- (NSArray<ASSection *> *)completedNodes;  // This provides access to ASDataController's _completedNodes multidimensional array.
 
 @end
 
