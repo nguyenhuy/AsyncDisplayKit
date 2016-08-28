@@ -11,6 +11,7 @@
 #import "ASRangeController.h"
 
 #import "ASAssert.h"
+#import "ASSection.h"
 #import "ASCellNode.h"
 #import "ASDisplayNodeExtras.h"
 #import "ASDisplayNodeInternal.h"
@@ -178,8 +179,8 @@ static UIApplicationState __ApplicationState = UIApplicationStateActive;
 #endif
   
   // allNodes is a 2D array: it contains arrays for each section, each containing nodes.
-  NSArray<NSArray *> *allNodes = [_dataSource completedNodes];
-  NSUInteger numberOfSections = [allNodes count];
+  NSArray<ASSection *> *allSections = [_dataSource completedNodes];
+  NSUInteger numberOfSections = [allSections count];
 
   // TODO: Consider if we need to use this codepath, or can rely on something more similar to the data & display ranges
   // Example: ... = [_layoutController indexPathsForScrolling:scrollDirection rangeType:ASLayoutRangeTypeVisible];
@@ -199,7 +200,7 @@ static UIApplicationState __ApplicationState = UIApplicationStateActive;
     [_layoutController setVisibleNodeIndexPaths:visibleNodePaths];
   }
   
-  NSArray<ASDisplayNode *> *currentSectionNodes = nil;
+  id currentSection = nil;
   NSInteger currentSectionIndex = -1; // Set to -1 so we don't match any indexPath.section on the first iteration.
   NSUInteger numberOfNodesInSection = 0;
   
@@ -261,7 +262,7 @@ static UIApplicationState __ApplicationState = UIApplicationStateActive;
   _didUpdateCurrentRange = NO;
   
   if (!_rangeIsValid) {
-    [allIndexPaths addObjectsFromArray:ASIndexPathsForTwoDimensionalArray(allNodes)];
+    [allIndexPaths addObjectsFromArray:ASIndexPathsForTwoDimensionalArray(allSections)];
   }
   
 #if ASRangeControllerLoggingEnabled
@@ -313,13 +314,13 @@ static UIApplicationState __ApplicationState = UIApplicationStateActive;
       if (section != currentSectionIndex) {
         // Often we'll be dealing with indexPaths in the same section, but the set isn't sorted and we may even bounce
         // between the same ones.  Still, this saves dozens of method calls to access the inner array and count.
-        currentSectionNodes = allNodes[section];
-        numberOfNodesInSection = [currentSectionNodes count];
+        currentSection = allSections[section];
+        numberOfNodesInSection = [currentSection count];
         currentSectionIndex = section;
       }
       
       if (row < numberOfNodesInSection) {
-        ASDisplayNode *node = currentSectionNodes[row];
+        ASDisplayNode *node = currentSection[row];
         
         ASDisplayNodeAssert(node.hierarchyState & ASHierarchyStateRangeManaged, @"All nodes reaching this point should be range-managed, or interfaceState may be incorrectly reset.");
         // Skip the many method calls of the recursive operation if the top level cell node already has the right interfaceState.

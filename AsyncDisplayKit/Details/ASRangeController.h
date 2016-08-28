@@ -132,7 +132,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (ASDisplayNode *)rangeController:(ASRangeController *)rangeController nodeAtIndexPath:(NSIndexPath *)indexPath;
 
-- (NSArray<NSArray <ASCellNode *> *> *)completedNodes;
+- (NSArray<ASSection *> *)completedNodes;
 
 - (NSString *)nameForRangeControllerDataSource;
 

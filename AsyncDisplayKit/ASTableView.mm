@@ -396,7 +396,7 @@ static NSString * const kCellReuseIdentifier = @"_ASTableViewCell";
   return [_rangeController tuningParametersForRangeMode:rangeMode rangeType:rangeType];
 }
 
-- (NSArray<NSArray <ASCellNode *> *> *)completedNodes
+- (NSArray<ASSection *> *)completedNodes
 {
   return [_dataController completedNodes];
 }

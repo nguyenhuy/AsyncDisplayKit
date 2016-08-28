@@ -29,6 +29,7 @@
 
 @implementation ASCollectionDataController {
   NSMutableDictionary<NSString *, NSMutableArray<ASIndexedNodeContext *> *> *_pendingContexts;
+  NSMutableDictionary<NSString *, NSArray<ASSection *> *> *_pendingSections;
 }
 
 - (instancetype)initWithDataSource:(id<ASCollectionDataControllerSource>)dataSource
@@ -36,6 +37,7 @@
   self = [super initWithDataSource:dataSource];
   if (self != nil) {
     _pendingContexts = [NSMutableDictionary dictionary];
+    _pendingSections = [NSMutableDictionary dictionary];
     _dataSourceImplementsSupplementaryNodeBlockOfKindAtIndexPath = [dataSource respondsToSelector:@selector(dataController:supplementaryNodeBlockOfKind:atIndexPath:)];
 
     ASDisplayNodeAssertTrue(_dataSourceImplementsSupplementaryNodeBlockOfKindAtIndexPath || [dataSource respondsToSelector:@selector(dataController:supplementaryNodeOfKind:atIndexPath:)]);
@@ -46,8 +48,12 @@
 - (void)prepareForReloadDataWithSectionCount:(NSInteger)newSectionCount
 {
   NSIndexSet *sections = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, newSectionCount)];
+  
   for (NSString *kind in [self supplementaryKinds]) {
     LOG(@"Populating elements of kind: %@", kind);
+    NSArray<ASSection *> *sectionsArray = [self populateSectionsFromDataSourceOfKind:kind atIndexSet:sections];
+    _pendingSections[kind] = sectionsArray;
+    
     NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray array];
     [self _populateSupplementaryNodesOfKind:kind withSections:sections mutableContexts:contexts];
     _pendingContexts[kind] = contexts;
@@ -56,7 +62,9 @@
 
 - (void)willReloadDataWithSectionCount:(NSInteger)newSectionCount
 {
-  [_pendingContexts enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull kind, NSMutableArray<ASIndexedNodeContext *> * _Nonnull contexts, __unused BOOL * _Nonnull stop) {
+  NSIndexSet *sectionIndexSet = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, newSectionCount)];
+  
+  for (NSString *kind in [self supplementaryKinds]) {
     // Remove everything that existed before the reload, now that we're ready to insert replacements
     NSArray *indexPaths = [self indexPathsForEditingNodesOfKind:kind];
     [self deleteNodesOfKind:kind atIndexPaths:indexPaths completion:nil];
@@ -66,16 +74,13 @@
     [self deleteSectionsOfKind:kind atIndexSet:indexSet completion:nil];
     
     // Insert each section
-    NSMutableArray *sections = [NSMutableArray arrayWithCapacity:newSectionCount];
-    for (int i = 0; i < newSectionCount; i++) {
-      [sections addObject:[NSMutableArray array]];
-    }
-    [self insertSections:sections ofKind:kind atIndexSet:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, newSectionCount)] completion:nil];
+    [self insertSections:_pendingSections[kind] ofKind:kind atIndexSet:sectionIndexSet completion:nil];
     
-    [self batchLayoutNodesFromContexts:contexts batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
+    [self batchLayoutNodesFromContexts:_pendingContexts[kind] batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
       [self insertNodes:nodes ofKind:kind atIndexPaths:indexPaths completion:nil];
     }];
-  }];
+  };
+  [_pendingSections removeAllObjects];
   [_pendingContexts removeAllObjects];
 }
 
@@ -83,6 +88,9 @@
 {
   for (NSString *kind in [self supplementaryKinds]) {
     LOG(@"Populating elements of kind: %@, for sections: %@", kind, sections);
+    NSArray<ASSection *> *sectionsArray = [self populateSectionsFromDataSourceOfKind:kind atIndexSet:sections];
+    _pendingSections[kind] = sectionsArray;
+    
     NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray array];
     [self _populateSupplementaryNodesOfKind:kind withSections:sections mutableContexts:contexts];
     _pendingContexts[kind] = contexts;
@@ -91,17 +99,14 @@
 
 - (void)willInsertSections:(NSIndexSet *)sections
 {
-  [_pendingContexts enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull kind, NSMutableArray<ASIndexedNodeContext *> * _Nonnull contexts, BOOL * _Nonnull stop) {
-    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sections.count];
-    for (NSUInteger i = 0; i < sections.count; i++) {
-      [sectionArray addObject:[NSMutableArray array]];
-    }
+  for (NSString *kind in [self supplementaryKinds]) {
+    [self insertSections:_pendingSections[kind] ofKind:kind atIndexSet:sections completion:nil];
     
-    [self insertSections:sectionArray ofKind:kind atIndexSet:sections completion:nil];
-    [self batchLayoutNodesFromContexts:contexts batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
+    [self batchLayoutNodesFromContexts:_pendingContexts[kind] batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
       [self insertNodes:nodes ofKind:kind atIndexPaths:indexPaths completion:nil];
     }];
-  }];
+  };
+  [_pendingSections removeAllObjects];
   [_pendingContexts removeAllObjects];
 }
 

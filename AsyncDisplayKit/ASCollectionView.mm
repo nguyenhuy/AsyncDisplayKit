@@ -24,6 +24,7 @@
 #import "ASCollectionNode.h"
 #import "_ASDisplayLayer.h"
 #import "ASCollectionViewLayoutFacilitatorProtocol.h"
+#import "ASSectionContext.h"
 
 
 /// What, if any, invalidation should we perform during the next -layoutSubviews.
@@ -153,6 +154,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
     unsigned int asyncDataSourceNodeForItemAtIndexPath:1;
     unsigned int asyncDataSourceNodeBlockForItemAtIndexPath:1;
     unsigned int asyncDataSourceNumberOfSectionsInCollectionView:1;
+    unsigned int asyncDataSourceContextForSectionAtIndex:1;
   } _asyncDataSourceFlags;
   
   struct {
@@ -354,6 +356,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
     _asyncDataSourceFlags.asyncDataSourceNodeForItemAtIndexPath = [_asyncDataSource respondsToSelector:@selector(collectionView:nodeForItemAtIndexPath:)];
     _asyncDataSourceFlags.asyncDataSourceNodeBlockForItemAtIndexPath = [_asyncDataSource respondsToSelector:@selector(collectionView:nodeBlockForItemAtIndexPath:)];
     _asyncDataSourceFlags.asyncDataSourceNumberOfSectionsInCollectionView = [_asyncDataSource respondsToSelector:@selector(numberOfSectionsInCollectionView:)];
+    _asyncDataSourceFlags.asyncDataSourceContextForSectionAtIndex = [_asyncDataSource respondsToSelector:@selector(collectionView:contextForSectionAtIndex:)];
 
     // Data-source must implement collectionView:nodeForItemAtIndexPath: or collectionView:nodeBlockForItemAtIndexPath:
     ASDisplayNodeAssertTrue(_asyncDataSourceFlags.asyncDataSourceNodeBlockForItemAtIndexPath || _asyncDataSourceFlags.asyncDataSourceNodeForItemAtIndexPath);
@@ -464,7 +467,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   return [[_dataController nodeAtIndexPath:indexPath] calculatedSize];
 }
 
-- (NSArray<NSArray <ASCellNode *> *> *)completedNodes
+- (NSArray<ASSection *> *)completedNodes
 {
   return [_dataController completedNodes];
 }
@@ -588,6 +591,12 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
 {
   ASDisplayNodeAssertMainThread();
   [_dataController moveSection:section toSection:newSection withAnimationOptions:kASCollectionViewAnimationNone];
+}
+
+- (id<ASSectionContext>)contextForSectionAtIndex:(NSInteger)sectionIndex
+{
+  ASDisplayNodeAssertMainThread();
+  return [_dataController contextForSectionAtIndex:sectionIndex];
 }
 
 - (void)insertItemsAtIndexPaths:(NSArray *)indexPaths
@@ -979,6 +988,18 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   } else {
     return 1;
   }
+}
+
+- (id<ASSectionContext>)dataController:(ASDataController *)dataController contextForSectionAtIndex:(NSInteger)sectionIndex
+{
+  if (_asyncDataSourceFlags.asyncDataSourceContextForSectionAtIndex) {
+    id<ASSectionContext> context = [_asyncDataSource collectionView:self contextForSectionAtIndex:sectionIndex];
+    if (context != nil) {
+      context.collectionView = self;
+    }
+    return context;
+  }  
+  return nil;
 }
 
 - (id<ASEnvironment>)dataControllerEnvironment

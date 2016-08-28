@@ -228,9 +228,10 @@
   [[self randomIndexSet] enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL *stop) {
     NSUInteger rowNum = NumberOfRowsPerSection;
     NSIndexPath *sectionIndex = [[NSIndexPath alloc] initWithIndex:idx];
-    for (NSUInteger i = (existing ? 0 : rowNum); i < (existing ? rowNum : rowNum * 2); i++) {
+    NSUInteger indiciesNum = (existing ? rowNum : rowNum * 2);
+    for (NSUInteger i = (existing ? 0 : rowNum); i < indiciesNum; i++) {
       // Maximize evility by sporadically skipping indicies 1/3rd of the time, but only if reloading existing rows
-      if (existing && arc4random_uniform(2) == 0) {
+      if (existing && arc4random_uniform(2) == 0 && indexPaths.count > 0) {
         continue;
       }
       
@@ -279,15 +280,18 @@
       [tableView beginUpdates];
     }
     
+    NSLog(@"----");
+    NSLog(@"Num of sections: %ld", [[tableView.dataController completedNodes] count]);
     if (reloadRowsInsteadOfSections) {
       NSArray *indexPaths = [self randomIndexPathsExisting:YES];
-      //NSLog(@"reloading rows: %@", indexPaths);
+      NSLog(@"reloading rows: %@", indexPaths);
       [tableView reloadRowsAtIndexPaths:indexPaths withRowAnimation:rowAnimation];
     } else {
       NSIndexSet *sections = [self randomIndexSet];
-      //NSLog(@"reloading sections: %@", sections);
+      NSLog(@"reloading sections: %@", sections);
       [tableView reloadSections:sections withRowAnimation:rowAnimation];
     }
+    NSLog(@"Num of sections: %ld", [[tableView.dataController completedNodes] count]);
     
     [tableView setContentOffset:CGPointMake(0, arc4random_uniform(tableView.contentSize.height - tableView.bounds.size.height)) animated:animatedScroll];
     

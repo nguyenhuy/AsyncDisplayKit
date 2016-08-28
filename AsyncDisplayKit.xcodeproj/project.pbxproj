@@ -296,6 +296,12 @@
 		AC47D9461B3BB41900AAEE9D /* ASRelativeSize.mm in Sources */ = {isa = PBXBuildFile; fileRef = AC47D9441B3BB41900AAEE9D /* ASRelativeSize.mm */; };
 		AC6456091B0A335000CF11B8 /* ASCellNode.mm in Sources */ = {isa = PBXBuildFile; fileRef = AC6456071B0A335000CF11B8 /* ASCellNode.mm */; };
 		AC7A2C181BDE11DF0093FE1A /* ASTableViewInternal.h in Headers */ = {isa = PBXBuildFile; fileRef = AC7A2C161BDE11DF0093FE1A /* ASTableViewInternal.h */; };
+		ACE87A271D73695000D7FF06 /* ASSection.h in Headers */ = {isa = PBXBuildFile; fileRef = ACE87A261D73695000D7FF06 /* ASSection.h */; };
+		ACE87A291D73695E00D7FF06 /* ASSection.m in Sources */ = {isa = PBXBuildFile; fileRef = ACE87A281D73695E00D7FF06 /* ASSection.m */; };
+		ACE87A2A1D73695E00D7FF06 /* ASSection.m in Sources */ = {isa = PBXBuildFile; fileRef = ACE87A281D73695E00D7FF06 /* ASSection.m */; };
+		ACE87A2C1D73696800D7FF06 /* ASSectionContext.h in Headers */ = {isa = PBXBuildFile; fileRef = ACE87A2B1D73696800D7FF06 /* ASSectionContext.h */; };
+		ACE87A321D73726300D7FF06 /* ASSection.h in CopyFiles */ = {isa = PBXBuildFile; fileRef = ACE87A261D73695000D7FF06 /* ASSection.h */; };
+		ACE87A331D73726300D7FF06 /* ASSectionContext.h in CopyFiles */ = {isa = PBXBuildFile; fileRef = ACE87A2B1D73696800D7FF06 /* ASSectionContext.h */; };
 		ACF6ED1B1B17843500DA7C62 /* ASBackgroundLayoutSpec.mm in Sources */ = {isa = PBXBuildFile; fileRef = ACF6ED021B17843500DA7C62 /* ASBackgroundLayoutSpec.mm */; };
 		ACF6ED1D1B17843500DA7C62 /* ASCenterLayoutSpec.mm in Sources */ = {isa = PBXBuildFile; fileRef = ACF6ED041B17843500DA7C62 /* ASCenterLayoutSpec.mm */; };
 		ACF6ED211B17843500DA7C62 /* ASDimension.mm in Sources */ = {isa = PBXBuildFile; fileRef = ACF6ED081B17843500DA7C62 /* ASDimension.mm */; };
@@ -637,6 +643,8 @@
 			dstPath = "include/$(PRODUCT_NAME)";
 			dstSubfolderSpec = 16;
 			files = (
+				ACE87A321D73726300D7FF06 /* ASSection.h in CopyFiles */,
+				ACE87A331D73726300D7FF06 /* ASSectionContext.h in CopyFiles */,
 				F7CE6C981D2CDB5800BE4C15 /* ASInternalHelpers.h in CopyFiles */,
 				F7CE6CB71D2CE2D000BE4C15 /* ASLayoutableExtensibility.h in CopyFiles */,
 				F7CE6C131D2CDB3E00BE4C15 /* ASPagerFlowLayout.h in CopyFiles */,
@@ -1037,6 +1045,9 @@
 		AC6456071B0A335000CF11B8 /* ASCellNode.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; path = ASCellNode.mm; sourceTree = "<group>"; };
 		AC7A2C161BDE11DF0093FE1A /* ASTableViewInternal.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ASTableViewInternal.h; sourceTree = "<group>"; };
 		ACC945A81BA9E7A0005E1FB8 /* ASViewController.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ASViewController.h; sourceTree = "<group>"; };
+		ACE87A261D73695000D7FF06 /* ASSection.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ASSection.h; sourceTree = "<group>"; };
+		ACE87A281D73695E00D7FF06 /* ASSection.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ASSection.m; sourceTree = "<group>"; };
+		ACE87A2B1D73696800D7FF06 /* ASSectionContext.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = ASSectionContext.h; sourceTree = "<group>"; };
 		ACF6ED011B17843500DA7C62 /* ASBackgroundLayoutSpec.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ASBackgroundLayoutSpec.h; path = AsyncDisplayKit/Layout/ASBackgroundLayoutSpec.h; sourceTree = "<group>"; };
 		ACF6ED021B17843500DA7C62 /* ASBackgroundLayoutSpec.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; lineEnding = 0; name = ASBackgroundLayoutSpec.mm; path = AsyncDisplayKit/Layout/ASBackgroundLayoutSpec.mm; sourceTree = "<group>"; };
 		ACF6ED031B17843500DA7C62 /* ASCenterLayoutSpec.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = ASCenterLayoutSpec.h; path = AsyncDisplayKit/Layout/ASCenterLayoutSpec.h; sourceTree = "<group>"; };
@@ -1610,6 +1621,9 @@
 				AC026B681BD57D6F00BBC17E /* ASChangeSetDataController.mm */,
 				E5711A2A1C840C81009619D4 /* ASIndexedNodeContext.h */,
 				E5711A2D1C840C96009619D4 /* ASIndexedNodeContext.mm */,
+				ACE87A261D73695000D7FF06 /* ASSection.h */,
+				ACE87A281D73695E00D7FF06 /* ASSection.m */,
+				ACE87A2B1D73696800D7FF06 /* ASSectionContext.h */,
 			);
 			name = "Data Controller";
 			sourceTree = "<group>";
@@ -1750,6 +1764,7 @@
 				18C2ED7F1B9B7DE800F627B3 /* ASCollectionNode.h in Headers */,
 				9C8898BD1C738BB800D6B02E /* ASTextKitFontSizeAdjuster.h in Headers */,
 				B35061F51B010EFD0018CF92 /* ASCollectionView.h in Headers */,
+				ACE87A2C1D73696800D7FF06 /* ASSectionContext.h in Headers */,
 				254C6B791BF94DF4003EC431 /* ASTextKitEntityAttribute.h in Headers */,
 				509E68631B3AEDB4009B9150 /* ASCollectionViewLayoutController.h in Headers */,
 				CC3B20841C3F76D600798563 /* ASPendingStateController.h in Headers */,
@@ -1770,6 +1785,7 @@
 				8021EC1D1D2B00B100799119 /* UIImage+ASConvenience.h in Headers */,
 				254C6B801BF94DF4003EC431 /* ASEqualityHashHelpers.h in Headers */,
 				B350624F1B010EFD0018CF92 /* ASDisplayNode+DebugTiming.h in Headers */,
+				ACE87A271D73695000D7FF06 /* ASSection.h in Headers */,
 				B35061FD1B010EFD0018CF92 /* ASDisplayNode+Subclasses.h in Headers */,
 				B35061FB1B010EFD0018CF92 /* ASDisplayNode.h in Headers */,
 				B35061FE1B010EFD0018CF92 /* ASDisplayNodeExtras.h in Headers */,
@@ -1909,6 +1925,7 @@
 				058D09BA195D04C000B7D73C /* Resources */,
 				3B9D88CDF51B429C8409E4B6 /* [CP] Copy Pods Resources */,
 				B130AB1AC0A1E5162E211C19 /* [CP] Embed Pods Frameworks */,
+				8425D85782C0426D9C61FC36 /* Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -2039,6 +2056,21 @@
 			shellScript = "\"${SRCROOT}/Pods/Target Support Files/Pods-AsyncDisplayKitTests/Pods-AsyncDisplayKitTests-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
+		8425D85782C0426D9C61FC36 /* Embed Pods Frameworks */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Embed Pods Frameworks";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/Pods/Target Support Files/Pods-AsyncDisplayKitTests/Pods-AsyncDisplayKitTests-frameworks.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
 		B130AB1AC0A1E5162E211C19 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -2149,6 +2181,7 @@
 				257754921BED28F300737CA5 /* ASEqualityHashHelpers.mm in Sources */,
 				E52405B31C8FEF03004DC8E7 /* ASLayoutTransition.mm in Sources */,
 				69CB62AD1CB8165900024920 /* _ASDisplayViewAccessiblity.mm in Sources */,
+				ACE87A291D73695E00D7FF06 /* ASSection.m in Sources */,
 				257754AB1BEE44CD00737CA5 /* ASTextKitEntityAttribute.m in Sources */,
 				055F1A3919ABD413004DAFF1 /* ASRangeController.mm in Sources */,
 				044285091BAA63FE00D16268 /* ASBatchFetching.m in Sources */,
@@ -2326,6 +2359,7 @@
 				B35062051B010EFD0018CF92 /* ASMultiplexImageNode.mm in Sources */,
 				B35062251B010EFD0018CF92 /* ASMutableAttributedStringBuilder.m in Sources */,
 				B35062071B010EFD0018CF92 /* ASNetworkImageNode.mm in Sources */,
+				ACE87A2A1D73695E00D7FF06 /* ASSection.m in Sources */,
 				34EFC76D1B701CF100AD841F /* ASOverlayLayoutSpec.mm in Sources */,
 				044285101BAA64EC00D16268 /* ASMultidimensionalArrayUtils.mm in Sources */,
 				B35062271B010EFD0018CF92 /* ASRangeController.mm in Sources */,
