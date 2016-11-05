@@ -134,6 +134,11 @@ NS_ASSUME_NONNULL_BEGIN
  */
 @property (nonatomic) BOOL zeroContentInsets;
 
+/**
+ * Invalidates scrollable directions computed by the framework. They will be recomputed at a later time.
+ */
+- (void)invalidateScrollableDirections;
+
 @end
 
 @interface ASCollectionView (Deprecated)

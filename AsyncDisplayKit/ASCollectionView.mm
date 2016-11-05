@@ -130,6 +130,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   
   NSMutableSet *_registeredSupplementaryKinds;
   
+  ASScrollDirection _scrollableDirections;
   CGPoint _deceleratingVelocity;
   
   ASCollectionViewInvalidationStyle _nextLayoutInvalidationStyle;
@@ -286,6 +287,8 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   super.dataSource = (id<UICollectionViewDataSource>)_proxyDataSource;
   
   _registeredSupplementaryKinds = [NSMutableSet set];
+  
+  _scrollableDirections = ASScrollDirectionNone;
   
   _cellsForVisibilityUpdates = [NSMutableSet set];
   self.backgroundColor = [UIColor whiteColor];
@@ -1121,19 +1124,25 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   id<ASCollectionViewLayoutInspecting> layoutInspector = self.layoutInspector;
   if (_layoutInspectorFlags.scrollableDirections) {
     return [layoutInspector scrollableDirections];
-  } else {
-    ASScrollDirection scrollableDirection = ASScrollDirectionNone;
+  }
+  
+  if (_scrollableDirections == ASScrollDirectionNone) {
     CGFloat totalContentWidth = self.contentSize.width + self.contentInset.left + self.contentInset.right;
     CGFloat totalContentHeight = self.contentSize.height + self.contentInset.top + self.contentInset.bottom;
     
     if (self.alwaysBounceHorizontal || totalContentWidth > self.bounds.size.width) { // Can scroll horizontally.
-      scrollableDirection |= ASScrollDirectionHorizontalDirections;
+      _scrollableDirections |= ASScrollDirectionHorizontalDirections;
     }
     if (self.alwaysBounceVertical || totalContentHeight > self.bounds.size.height) { // Can scroll vertically.
-      scrollableDirection |= ASScrollDirectionVerticalDirections;
+      _scrollableDirections |= ASScrollDirectionVerticalDirections;
     }
-    return scrollableDirection;
   }
+  
+  return _scrollableDirections;
+}
+
+- (void)invalidateScrollableDirections {
+  _scrollableDirections = ASScrollDirectionNone;
 }
 
 - (ASScrollDirection)flowLayoutScrollableDirections:(UICollectionViewFlowLayout *)flowLayout {
