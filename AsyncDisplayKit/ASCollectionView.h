@@ -83,6 +83,30 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, weak) id<ASCollectionViewLayoutInspecting> layoutInspector;
 
 /**
+ * Determines collection view's current scroll direction. Supports 2-axis collection views.
+ *
+ * @return a bitmask of ASScrollDirection values.
+ */
+@property (nonatomic, readonly) ASScrollDirection scrollDirection;
+
+/**
+ * Determines collection view's scrollable directions.
+ *
+ * @return a bitmask of ASScrollDirection values.
+ */
+@property (nonatomic, readonly) ASScrollDirection scrollableDirections;
+
+/**
+ * Forces the .contentInset to be UIEdgeInsetsZero.
+ *
+ * @discussion By default, UIKit sets the top inset to the navigation bar height, even for horizontally
+ * scrolling views.  This can only be disabled by setting a property on the containing UIViewController,
+ * automaticallyAdjustsScrollViewInsets, which may not be accessible.  ASPagerNode uses this to ensure
+ * its flow layout behaves predictably and does not log undefined layout warnings.
+ */
+@property (nonatomic) BOOL zeroContentInsets;
+
+/**
  * Retrieves the node for the item at the given index path.
  *
  * @param indexPath The index path of the requested node.
@@ -109,30 +133,6 @@ NS_ASSUME_NONNULL_BEGIN
  * @return The context object, or @c nil if no context was provided.
  */
 - (nullable id<ASSectionContext>)contextForSection:(NSInteger)section AS_WARN_UNUSED_RESULT;
-
-/**
- * Determines collection view's current scroll direction. Supports 2-axis collection views.
- *
- * @return a bitmask of ASScrollDirection values.
- */
-@property (nonatomic, readonly) ASScrollDirection scrollDirection;
-
-/**
- * Determines collection view's scrollable directions.
- *
- * @return a bitmask of ASScrollDirection values.
- */
-@property (nonatomic, readonly) ASScrollDirection scrollableDirections;
-
-/**
- * Forces the .contentInset to be UIEdgeInsetsZero.
- *
- * @discussion By default, UIKit sets the top inset to the navigation bar height, even for horizontally
- * scrolling views.  This can only be disabled by setting a property on the containing UIViewController,
- * automaticallyAdjustsScrollViewInsets, which may not be accessible.  ASPagerNode uses this to ensure
- * its flow layout behaves predictably and does not log undefined layout warnings.
- */
-@property (nonatomic) BOOL zeroContentInsets;
 
 /**
  * Invalidates scrollable directions computed by the framework. They will be recomputed at a later time.

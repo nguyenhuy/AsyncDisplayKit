@@ -213,7 +213,7 @@ static NSString * const kCellReuseIdentifier = @"_ASCollectionViewCell";
   struct {
     unsigned int didChangeCollectionViewDataSource:1;
     unsigned int didChangeCollectionViewDelegate:1;
-	unsigned int scrollableDirections:1;
+    unsigned int scrollableDirections:1;
   } _layoutInspectorFlags;
 }
 
