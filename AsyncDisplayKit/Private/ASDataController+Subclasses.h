@@ -13,16 +13,11 @@
 
 @class ASIndexedNodeContext;
 
-typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths);
+typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> *contexts, NSArray<ASCellNode *> *nodes);
 
 @interface ASDataController (Subclasses)
 
 #pragma mark - Internal editing & completed store querying
-
-/**
- * Read-only access to the underlying editing nodes of the given kind
- */
-- (NSMutableArray *)editingNodesOfKind:(NSString *)kind;
 
 /**
  * Read only access to the underlying completed nodes of the given kind

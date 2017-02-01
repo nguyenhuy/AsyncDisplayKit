@@ -59,7 +59,7 @@ BOOL ASHierarchyChangeTypeIsFinal(_ASHierarchyChangeType changeType);
 
 NSString *NSStringFromASHierarchyChangeType(_ASHierarchyChangeType changeType);
 
-@interface _ASHierarchySectionChange : NSObject <ASDescriptionProvider, ASDebugDescriptionProvider>
+@interface _ASHierarchySectionChange : NSObject <ASDescriptionProvider, ASDebugDescriptionProvider, NSCopying>
 
 // FIXME: Generalize this to `changeMetadata` dict?
 @property (nonatomic, readonly) ASDataControllerAnimationOptions animationOptions;
@@ -74,7 +74,7 @@ NSString *NSStringFromASHierarchyChangeType(_ASHierarchyChangeType changeType);
 - (_ASHierarchySectionChange *)changeByFinalizingType;
 @end
 
-@interface _ASHierarchyItemChange : NSObject <ASDescriptionProvider, ASDebugDescriptionProvider>
+@interface _ASHierarchyItemChange : NSObject <ASDescriptionProvider, ASDebugDescriptionProvider, NSCopying>
 @property (nonatomic, readonly) ASDataControllerAnimationOptions animationOptions;
 
 /// Index paths are sorted descending for changeType .Delete, ascending otherwise

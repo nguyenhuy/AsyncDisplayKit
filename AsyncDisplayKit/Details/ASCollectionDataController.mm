@@ -74,9 +74,6 @@
   
   [self applyPendingSections:sectionIndexes];
   
-  // Assert that ASDataController has already deleted all the old sections for us.
-  ASDisplayNodeAssert([self editingNodesOfKind:ASDataControllerRowNodeKind].count == 0, @"Expected that all old sections were deleted before %@. Sections: %@", NSStringFromSelector(_cmd), [self editingNodesOfKind:ASDataControllerRowNodeKind]);
-
   [_pendingNodeContexts enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull kind, NSMutableArray<ASIndexedNodeContext *> * _Nonnull contexts, __unused BOOL * _Nonnull stop) {
     // Insert each section
     NSMutableArray *sections = [NSMutableArray arrayWithCapacity:newSectionCount];
