@@ -37,34 +37,12 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASCellNode *> *nodes, NS
  * This method runs synchronously.
  * @param batchCompletion A handler to be run after each batch is completed. It is executed synchronously on the calling thread.
  */
-- (void)batchLayoutNodesFromContexts:(NSArray<ASIndexedNodeContext *> *)contexts batchCompletion:(ASDataControllerCompletionBlock)batchCompletionHandler;
+- (void)batchLayoutNodesFromContexts:(NSArray<ASIndexedNodeContext *> *)contexts batchSize:(NSUInteger)batchSize batchCompletion:(ASDataControllerCompletionBlock)batchCompletionHandler;
 
 /**
  * Provides the size range for a specific node during the layout process.
  */
 - (ASSizeRange)constrainedSizeForNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
-
-#pragma mark - Node & Section Insertion/Deletion API
-
-/**
- * Inserts the given nodes of the specified kind into the backing store, calling completion on the main thread when the write finishes.
- */
-- (void)insertNodes:(NSArray *)nodes ofKind:(NSString *)kind atIndexPaths:(NSArray *)indexPaths completion:(ASDataControllerCompletionBlock)completionBlock;
-
-/**
- * Deletes the given nodes of the specified kind in the backing store, calling completion on the main thread when the deletion finishes.
- */
-- (void)deleteNodesOfKind:(NSString *)kind atIndexPaths:(NSArray *)indexPaths completion:(ASDataControllerCompletionBlock)completionBlock;
-
-/**
- * Inserts the given sections of the specified kind in the backing store, calling completion on the main thread when finished.
- */
-- (void)insertSections:(NSMutableArray *)sections ofKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet completion:(void (^)(NSArray *sections, NSIndexSet *indexSet))completionBlock;
-
-/**
- * Deletes the given sections in the backing store, calling completion on the main thread when finished.
- */
-- (void)deleteSections:(NSIndexSet *)indexSet completion:(void (^)())completionBlock;
 
 #pragma mark - Data Manipulation Hooks
 
