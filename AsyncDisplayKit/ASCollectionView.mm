@@ -1502,13 +1502,13 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
   return ^{ return node; };
 }
 
-- (NSArray *)supplementaryNodeKindsInDataController:(ASCollectionDataController *)dataController sections:(NSIndexSet *)sections
+- (NSArray<NSString *> *)supplementaryNodeKindsInDataController:(ASCollectionDataController *)dataController sections:(NSIndexSet *)sections
 {
   if (_asyncDataSourceFlags.collectionNodeSupplementaryElementKindsInSection) {
     NSMutableSet *kinds = [NSMutableSet set];
     GET_COLLECTIONNODE_OR_RETURN(collectionNode, @[]);
     [sections enumerateIndexesUsingBlock:^(NSUInteger section, BOOL * _Nonnull stop) {
-      NSArray *kindsForSection = [_asyncDataSource collectionNode:collectionNode supplementaryElementKindsInSection:section];
+      NSArray<NSString *> *kindsForSection = [_asyncDataSource collectionNode:collectionNode supplementaryElementKindsInSection:section];
       [kinds addObjectsFromArray:kindsForSection];
     }];
     return [kinds allObjects];

@@ -53,8 +53,8 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 #endif
 
 @interface ASDataController () {
-  NSMutableDictionary *_nodeContexts;       // Main thread only. This is modified immediately during edits i.e. these are in the dataSource's index space.
-  NSMutableDictionary<NSString *, NSMutableArray *> *_completedNodes;       // Main thread only.  External data access can immediately query this if _externalCompletedNodes is unavailable.
+  NSMutableDictionary<NSString *, NSMutableArray<ASIndexedNodeContext *> *> *_nodeContexts;       // Main thread only. This is modified immediately during edits i.e. these are in the dataSource's index space.
+  NSMutableDictionary<NSString *, NSMutableArray<ASCellNode *> *> *_completedNodes;       // Main thread only.  External data access can immediately query this if _externalCompletedNodes is unavailable.
   BOOL _itemCountsFromDataSourceAreValid;     // Main thread only.
   std::vector<NSInteger> _itemCountsFromDataSource;         // Main thread only.
   
@@ -475,6 +475,9 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
     return;
   }
   
+  // TODO need this?
+  // dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
+  
   [self invalidateDataSourceItemCounts];
   
   // Attempt to mark the update completed. This is when update validation will occur inside the changeset.
@@ -558,17 +561,32 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   }
   
   for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeInsert]) {
-    NSIndexSet *sections = change.indexSet;
-    NSArray<ASIndexedNodeContext *> *contexts = [self _populateNodeContextsFromDataSourceForSections:sections withEnvironment:environment];
+    
+    
+    NSArray<ASIndexedNodeContext *> *contexts = [self _populateNodeContextsFromDataSourceForSections:change.indexSet withEnvironment:environment];
     insertedContextsMap[change] = contexts;
     
-    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sections.count];
-    for (NSUInteger i = 0; i < sections.count; i++) {
+    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:change.indexSet.count];
+    for (NSUInteger i = 0; i < change.indexSet.count; i++) {
       [sectionArray addObject:[NSMutableArray array]];
     }
     NSMutableArray *allRowContexts = _nodeContexts[ASDataControllerRowNodeKind];
-    [allRowContexts insertObjects:sectionArray atIndexes:sections];
+    [allRowContexts insertObjects:sectionArray atIndexes:change.indexSet];
+    
     ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allRowContexts, [ASIndexedNodeContext indexPathsFromContexts:contexts], contexts);
+    
+    for (NSString *kind in [self supplementaryKindsInSections:change.indexSet]) {
+      LOG(@"Populating elements of kind: %@, for sections: %@", kind, change.indexSet);
+      NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray array];
+      [self _populateSupplementaryNodesOfKind:kind withSections:change.indexSet mutableContexts:contexts];
+      
+      NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:change.indexSet.count];
+      for (NSUInteger i = 0; i < change.indexSet.count; i++) {
+        [sectionArray addObject:[NSMutableArray array]];
+      }
+      
+      
+    }];
   }
   
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeInsert]) {
@@ -677,14 +695,6 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 
 - (void)insertSections:(NSIndexSet *)sections withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
 {
-  ASDisplayNodeAssertMainThread();
-  LOG(@"Edit Command - insertSections: %@", sections);
-  if (!_initialReloadDataHasBeenCalled) {
-    return;
-  }
-
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-  
   [self prepareForInsertSections:sections];
   
   dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{

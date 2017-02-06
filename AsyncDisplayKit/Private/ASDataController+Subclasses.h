@@ -60,28 +60,6 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 - (void)willReloadDataWithSectionCount:(NSInteger)newSectionCount;
 
 /**
- * Notifies the subclass to perform setup before sections are inserted in the data controller
- *
- * @discussion This method will be performed before the data controller enters its editing queue.
- * The data source is locked at this point and accessing it is safe. Use this method to set up any nodes or
- * data stores before entering into editing the backing store on a background thread.
- *
- * @param sections Indices of sections to be inserted
- */
-- (void)prepareForInsertSections:(NSIndexSet *)sections;
-
-/**
- * Notifies the subclass that the data controller will insert new sections at the given position
- *
- * @discussion This method will be performed on the data controller's editing background queue before the parent's
- * concrete implementation. This is a great place to perform any additional transformations like supplementary views
- * or header/footer nodes.
- *
- * @param sections Indices of sections to be inserted
- */
-- (void)willInsertSections:(NSIndexSet *)sections;
-
-/**
  * Notifies the subclass to perform setup before sections are deleted in the data controller
  *
  * @discussion This method will be performed before the data controller enters its editing queue.

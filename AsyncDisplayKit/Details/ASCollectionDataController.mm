@@ -282,7 +282,7 @@
 
 #pragma mark - Private Helpers
 
-- (NSArray *)supplementaryKindsInSections:(NSIndexSet *)sections
+- (NSArray<NSString *> *)supplementaryKindsInSections:(NSIndexSet *)sections
 {
   return [self.collectionDataSource supplementaryNodeKindsInDataController:self sections:sections];
 }
