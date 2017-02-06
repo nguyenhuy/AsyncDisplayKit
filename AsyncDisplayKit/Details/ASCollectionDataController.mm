@@ -23,7 +23,6 @@
 #define LOG(...)
 
 @interface ASCollectionDataController () {
-  BOOL _dataSourceImplementsSupplementaryNodeBlockOfKindAtIndexPath;
   NSInteger _nextSectionID;
   NSMutableArray<ASSection *> *_sections;
   NSArray<ASSection *> *_pendingSections;
@@ -36,23 +35,17 @@
   NSArray *_supplementaryKindsForPendingOperation;
 }
 
-- (id<ASCollectionDataControllerSource>)collectionDataSource;
-
 @end
 
 @implementation ASCollectionDataController {
   NSMutableDictionary<NSString *, NSMutableArray<ASIndexedNodeContext *> *> *_pendingNodeContexts;
 }
 
-- (instancetype)initWithDataSource:(id<ASCollectionDataControllerSource>)dataSource eventLog:(ASEventLog *)eventLog
+- (instancetype)initWithDataSource:(id<ASDataControllerSource>)dataSource eventLog:(ASEventLog *)eventLog
 {
   self = [super initWithDataSource:dataSource eventLog:eventLog];
   if (self != nil) {
     _pendingNodeContexts = [NSMutableDictionary dictionary];
-    _dataSourceImplementsSupplementaryNodeBlockOfKindAtIndexPath = [dataSource respondsToSelector:@selector(dataController:supplementaryNodeBlockOfKind:atIndexPath:)];
-
-    ASDisplayNodeAssertTrue(_dataSourceImplementsSupplementaryNodeBlockOfKindAtIndexPath || [dataSource respondsToSelector:@selector(dataController:supplementaryNodeOfKind:atIndexPath:)]);
-    
     _nextSectionID = 0;
     _sections = [NSMutableArray array];
   }
@@ -244,14 +237,7 @@
 
 - (void)_populateSupplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath mutableContexts:(NSMutableArray<ASIndexedNodeContext *> *)contexts environment:(id<ASEnvironment>)environment
 {
-  ASCellNodeBlock supplementaryCellBlock;
-  if (_dataSourceImplementsSupplementaryNodeBlockOfKindAtIndexPath) {
-    supplementaryCellBlock = [self.collectionDataSource dataController:self supplementaryNodeBlockOfKind:kind atIndexPath:indexPath];
-  } else {
-    ASCellNode *supplementaryNode = [self.collectionDataSource dataController:self supplementaryNodeOfKind:kind atIndexPath:indexPath];
-    supplementaryCellBlock = ^{ return supplementaryNode; };
-  }
-  
+  ASCellNodeBlock supplementaryCellBlock = [self.collectionDataSource dataController:self supplementaryNodeBlockOfKind:kind atIndexPath:indexPath];
   ASSizeRange constrainedSize = [self constrainedSizeForNodeOfKind:kind atIndexPath:indexPath];
   ASIndexedNodeContext *context = [[ASIndexedNodeContext alloc] initWithNodeBlock:supplementaryCellBlock
                                                                         indexPath:indexPath
@@ -302,11 +288,6 @@
 - (NSArray *)supplementaryKindsInSections:(NSIndexSet *)sections
 {
   return [self.collectionDataSource supplementaryNodeKindsInDataController:self sections:sections];
-}
-
-- (id<ASCollectionDataControllerSource>)collectionDataSource
-{
-  return (id<ASCollectionDataControllerSource>)self.dataSource;
 }
 
 - (void)applyPendingSections:(NSIndexSet *)sectionIndexes

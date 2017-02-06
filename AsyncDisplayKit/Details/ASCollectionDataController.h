@@ -20,30 +20,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@protocol ASCollectionDataControllerSource <ASDataControllerSource>
-
-/**
- The constrained size range for layout.
- */
-- (ASSizeRange)dataController:(ASCollectionDataController *)dataController constrainedSizeForSupplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
-
-- (NSArray *)supplementaryNodeKindsInDataController:(ASCollectionDataController *)dataController sections:(NSIndexSet *)sections;
-
-- (NSUInteger)dataController:(ASCollectionDataController *)dataController supplementaryNodesOfKind:(NSString *)kind inSection:(NSUInteger)section;
-
-- (nullable id<ASSectionContext>)dataController:(ASCollectionDataController *)dataController contextForSection:(NSInteger)section;
-
-@optional
-
-- (ASCellNode *)dataController:(ASCollectionDataController *)dataController supplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
-
-- (ASCellNodeBlock)dataController:(ASCollectionDataController *)dataController supplementaryNodeBlockOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
-
-@end
-
 @interface ASCollectionDataController : ASDataController
-
-- (instancetype)initWithDataSource:(id<ASCollectionDataControllerSource>)dataSource eventLog:(nullable ASEventLog *)eventLog NS_DESIGNATED_INITIALIZER;
 
 - (ASCellNode *)supplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
 

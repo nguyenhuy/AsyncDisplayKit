@@ -30,6 +30,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class ASDataController;
 @class _ASHierarchyChangeSet;
 @protocol ASEnvironment;
+@protocol ASSectionContext;
 
 typedef NSUInteger ASDataControllerAnimationOptions;
 
@@ -67,6 +68,19 @@ extern NSString * const ASCollectionInvalidUpdateException;
  Fetch the number of sections.
  */
 - (NSUInteger)numberOfSectionsInDataController:(ASDataController *)dataController;
+
+@optional
+
+//TODO check that these methods are optional in ASDataController
+- (ASSizeRange)dataController:(ASDataController *)dataController constrainedSizeForSupplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
+
+- (NSArray<NSString *> *)supplementaryNodeKindsInDataController:(ASDataController *)dataController sections:(NSIndexSet *)sections;
+
+- (NSUInteger)dataController:(ASDataController *)dataController supplementaryNodesOfKind:(NSString *)kind inSection:(NSUInteger)section;
+
+- (ASCellNodeBlock)dataController:(ASDataController *)dataController supplementaryNodeBlockOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
+
+- (nullable id<ASSectionContext>)dataController:(ASDataController *)dataController contextForSection:(NSInteger)section;
 
 @end
 
