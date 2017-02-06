@@ -493,15 +493,22 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   
   ASDataControllerLogEvent(self, @"triggeredUpdate: %@", changeSet);
   
+  // Step 1: populdate new contexts (if any) and update _nodeContexts.
+  // After this step, _nodeContexts is up-to-date with "data source index space".
   ASHierarchyChangeToNodeContextMap *insertedContextsMap = [self populdateAndUpdateNodeContextsWithChangeSet:changeSet];
   
   dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    // Layout **all** new contexts without batching
+    
+    // Step 2: Layout **all** new contexts without batching in background.
+    // This step doesn't change any internal state.
     NSArray *insertedContexts = [insertedContextsMap.allValues valueForKeyPath: @"@unionOfArrays.self"];
     [self batchLayoutNodesFromContexts:insertedContexts batchSize:insertedContexts.count batchCompletion:^(NSArray *, NSArray *) {
       ASSERT_ON_EDITING_QUEUE;
       
-      ASMutableHierarchyChangeToNodeMap *insertedNodesMap;
+      // While we're on background, build the map between new inserted nodes and the change that causes them (if needed).
+      ASMutableHierarchyChangeToNodeMap * _Nullable insertedNodesMap;
+      
+      //TODO block enumuration here
       if (_delegateDidInsertNodes) {
         insertedNodesMap = [NSMutableDictionary dictionaryWithCapacity:insertedContextsMap.count];
         for (id<NSCopying> change in insertedContextsMap.allKeys) {
@@ -516,8 +523,14 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
       }
       
       [_mainSerialQueue performBlockOnMainThread:^{
-        ASHierarchyChangeToNodeMap *deletedNodesMap = [self updateCompletedNodesWithChangeSet:changeSet
-                                                                             insertedNodesMap:insertedNodesMap];
+        
+        // Step 3: Update _completedNodes and grab all the nodes that were deleted.
+        // After this step, _completedNodes is ready for "UIKit index space" to be updated.
+        // _completedNodes must be in sync with "UIKit index space".
+        ASHierarchyChangeToNodeMap * deletedNodesMap = [self updateCompletedNodesWithChangeSet:changeSet
+                                                                              insertedNodesMap:insertedNodesMap];
+        
+        // Step 4: Now that _completedNodes is ready, call UIKit to update using the original change set.
         [self forwardChangeSetToDelegate:changeSet
                         insertedNodesMap:insertedNodesMap
                          deletedNodesMap:deletedNodesMap
@@ -527,7 +540,7 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   });
 }
 
-- (ASHierarchyChangeToNodeContextMap *)populdateAndUpdateNodeContextsWithChangeSet:(_ASHierarchyChangeSet *)changeSet
+- (ASHierarchyChangeToNodeContextMap * _Nonnull)populdateAndUpdateNodeContextsWithChangeSet:(_ASHierarchyChangeSet * _Nonnull)changeSet
 {
   ASDisplayNodeAssertMainThread();
 
@@ -568,8 +581,8 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   return insertedContextsMap;
 }
 
-- (ASHierarchyChangeToNodeMap *)updateCompletedNodesWithChangeSet:(_ASHierarchyChangeSet *)changeSet
-                                                 insertedNodesMap:(ASHierarchyChangeToNodeMap *)insertedNodesMap
+- (ASHierarchyChangeToNodeMap * _Nullable)updateCompletedNodesWithChangeSet:(_ASHierarchyChangeSet * _Nonnull)changeSet
+                                                           insertedNodesMap:(ASHierarchyChangeToNodeMap * _Nonnull)insertedNodesMap
 {
   ASDisplayNodeAssertMainThread();
   
@@ -607,9 +620,9 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   return deletedNodesMap;
 }
 
-- (void)forwardChangeSetToDelegate:(_ASHierarchyChangeSet *)changeSet
-                  insertedNodesMap:(ASHierarchyChangeToNodeMap *)insertedNodesMap
-                   deletedNodesMap:(ASHierarchyChangeToNodeMap *)deletedNodesMap
+- (void)forwardChangeSetToDelegate:(_ASHierarchyChangeSet * _Nonnull)changeSet
+                  insertedNodesMap:(ASHierarchyChangeToNodeMap * _Nullable)insertedNodesMap
+                   deletedNodesMap:(ASHierarchyChangeToNodeMap * _Nullable)deletedNodesMap
                           animated:(BOOL)animated
 {
   ASDisplayNodeAssertMainThread();
