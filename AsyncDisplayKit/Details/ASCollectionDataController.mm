@@ -23,10 +23,6 @@
 #define LOG(...)
 
 @interface ASCollectionDataController () {
-  NSInteger _nextSectionID;
-  NSMutableArray<ASSection *> *_sections;
-  NSArray<ASSection *> *_pendingSections;
-
   /**
    * supplementaryKinds can only be accessed on the main thread
    * and so we set this in the -prepare stage, and then read it during the -will
@@ -82,37 +78,6 @@
     }
     [self insertSections:sections ofKind:kind atIndexSet:sectionIndexes completion:nil];
     
-    [self batchLayoutNodesFromContexts:contexts batchSize:0 batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
-      [self insertNodes:nodes ofKind:kind atIndexPaths:indexPaths completion:nil];
-    }];
-  }];
-  [_pendingNodeContexts removeAllObjects];
-}
-
-- (void)prepareForInsertSections:(NSIndexSet *)sections
-{
-  ASDisplayNodeAssertMainThread();
-  [self _populatePendingSectionsFromDataSource:sections];
-  
-  for (NSString *kind in [self supplementaryKindsInSections:sections]) {
-    LOG(@"Populating elements of kind: %@, for sections: %@", kind, sections);
-    NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray array];
-    [self _populateSupplementaryNodesOfKind:kind withSections:sections mutableContexts:contexts];
-    _pendingNodeContexts[kind] = contexts;
-  }
-}
-
-- (void)willInsertSections:(NSIndexSet *)sections
-{
-  [self applyPendingSections:sections];
-  
-  [_pendingNodeContexts enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull kind, NSMutableArray<ASIndexedNodeContext *> * _Nonnull contexts, BOOL * _Nonnull stop) {
-    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sections.count];
-    for (NSUInteger i = 0; i < sections.count; i++) {
-      [sectionArray addObject:[NSMutableArray array]];
-    }
-    
-    [self insertSections:sectionArray ofKind:kind atIndexSet:sections completion:nil];
     [self batchLayoutNodesFromContexts:contexts batchSize:0 batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
       [self insertNodes:nodes ofKind:kind atIndexPaths:indexPaths completion:nil];
     }];
@@ -197,21 +162,6 @@
   _pendingSections = sections;
 }
 
-- (void)_populateSupplementaryNodesOfKind:(NSString *)kind withSections:(NSIndexSet *)sections mutableContexts:(NSMutableArray<ASIndexedNodeContext *> *)contexts
-{
-  __weak id<ASEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
-
-  [sections enumerateRangesUsingBlock:^(NSRange range, BOOL * _Nonnull stop) {
-    for (NSUInteger sec = range.location; sec < NSMaxRange(range); sec++) {
-      NSUInteger itemCount = [self.collectionDataSource dataController:self supplementaryNodesOfKind:kind inSection:sec];
-      for (NSUInteger i = 0; i < itemCount; i++) {
-        NSIndexPath *indexPath = [NSIndexPath indexPathForItem:i inSection:sec];
-        [self _populateSupplementaryNodeOfKind:kind atIndexPath:indexPath mutableContexts:contexts environment:environment];
-      }
-    }
-  }];
-}
-
 - (void)_populateSupplementaryNodesOfKind:(NSString *)kind atIndexPaths:(NSArray<NSIndexPath *> *)indexPaths mutableContexts:(NSMutableArray<ASIndexedNodeContext *> *)contexts
 {
   __weak id<ASEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
@@ -230,30 +180,6 @@
       }
     }
   }];
-}
-
-- (void)_populateSupplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath mutableContexts:(NSMutableArray<ASIndexedNodeContext *> *)contexts environment:(id<ASEnvironment>)environment
-{
-  ASCellNodeBlock supplementaryCellBlock = [self.collectionDataSource dataController:self supplementaryNodeBlockOfKind:kind atIndexPath:indexPath];
-  ASSizeRange constrainedSize = [self constrainedSizeForNodeOfKind:kind atIndexPath:indexPath];
-  ASIndexedNodeContext *context = [[ASIndexedNodeContext alloc] initWithNodeBlock:supplementaryCellBlock
-                                                                        indexPath:indexPath
-                                                         supplementaryElementKind:kind
-                                                                  constrainedSize:constrainedSize
-                                                                      environment:environment];
-  [contexts addObject:context];
-}
-
-#pragma mark - Sizing query
-
-- (ASSizeRange)constrainedSizeForNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath
-{
-  if ([kind isEqualToString:ASDataControllerRowNodeKind]) {
-    return [super constrainedSizeForNodeOfKind:kind atIndexPath:indexPath];
-  } else {
-    ASDisplayNodeAssertMainThread();
-    return [self.collectionDataSource dataController:self constrainedSizeForSupplementaryNodeOfKind:kind atIndexPath:indexPath];
-  }
 }
 
 #pragma mark - External supplementary store and section context querying
@@ -278,19 +204,6 @@
   ASDisplayNodeAssertMainThread();
   ASDisplayNodeAssertTrue(section >= 0 && section < _sections.count);
   return _sections[section].context;
-}
-
-#pragma mark - Private Helpers
-
-- (NSArray<NSString *> *)supplementaryKindsInSections:(NSIndexSet *)sections
-{
-  return [self.collectionDataSource supplementaryNodeKindsInDataController:self sections:sections];
-}
-
-- (void)applyPendingSections:(NSIndexSet *)sectionIndexes
-{
-  [_sections insertObjects:_pendingSections atIndexes:sectionIndexes];
-  _pendingSections = nil;
 }
 
 @end

@@ -72,13 +72,13 @@ extern NSString * const ASCollectionInvalidUpdateException;
 @optional
 
 //TODO check that these methods are optional in ASDataController
-- (ASSizeRange)dataController:(ASDataController *)dataController constrainedSizeForSupplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
-
 - (NSArray<NSString *> *)supplementaryNodeKindsInDataController:(ASDataController *)dataController sections:(NSIndexSet *)sections;
 
 - (NSUInteger)dataController:(ASDataController *)dataController supplementaryNodesOfKind:(NSString *)kind inSection:(NSUInteger)section;
 
 - (ASCellNodeBlock)dataController:(ASDataController *)dataController supplementaryNodeBlockOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
+
+- (ASSizeRange)dataController:(ASDataController *)dataController constrainedSizeForSupplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
 
 - (nullable id<ASSectionContext>)dataController:(ASDataController *)dataController contextForSection:(NSInteger)section;
 

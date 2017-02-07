@@ -34,11 +34,6 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
  */
 - (void)batchLayoutNodesFromContexts:(NSArray<ASIndexedNodeContext *> *)contexts batchSize:(NSUInteger)batchSize batchCompletion:(ASDataControllerCompletionBlock)batchCompletionHandler;
 
-/**
- * Provides the size range for a specific node during the layout process.
- */
-- (ASSizeRange)constrainedSizeForNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
-
 #pragma mark - Data Manipulation Hooks
 
 /**
