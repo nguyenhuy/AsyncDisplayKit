@@ -1498,6 +1498,12 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
     node = [_asyncDataSource collectionView:self nodeForSupplementaryElementOfKind:kind atIndexPath:indexPath];
 #pragma clang diagnostic pop
   }
+  
+  if (node == nil && _asyncDataSourceFlags.interop) {
+    node = [[ASCellNode alloc] init];
+    node.shouldUseUIKitCell = YES;
+  }
+  
   ASDisplayNodeAssert(node != nil, @"A node must be returned for supplementary element of kind '%@' at index path '%@'", kind, indexPath);
   return ^{ return node; };
 }
