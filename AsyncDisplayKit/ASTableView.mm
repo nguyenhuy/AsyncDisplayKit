@@ -826,7 +826,7 @@ static NSString * const kCellReuseIdentifier = @"_ASTableViewCell";
     }
   }
 
-  if (_contentOffsetAdjustmentTopVisibleRow) { // true of we are in a begin/end update block (see beginAdjustingContentOffset)
+  if (_contentOffsetAdjustmentTopVisibleRow) { // true if we are in a begin/end update block (see beginAdjustingContentOffset)
     _contentOffsetAdjustmentTopVisibleRow = top;
     _contentOffsetAdjustment += adjustment;
   } else if (adjustment != 0) {

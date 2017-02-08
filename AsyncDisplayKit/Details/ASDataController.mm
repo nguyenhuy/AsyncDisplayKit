@@ -16,12 +16,13 @@
 #import <AsyncDisplayKit/ASLayout.h>
 #import <AsyncDisplayKit/ASMainSerialQueue.h>
 #import <AsyncDisplayKit/ASMultidimensionalArrayUtils.h>
+#import <AsyncDisplayKit/ASSection.h>
 #import <AsyncDisplayKit/ASThread.h>
 #import <AsyncDisplayKit/ASIndexedNodeContext.h>
-#import <AsyncDisplayKit/ASDataController+Subclasses.h>
 #import <AsyncDisplayKit/ASDispatch.h>
 #import <AsyncDisplayKit/ASInternalHelpers.h>
 #import <AsyncDisplayKit/ASCellNode+Internal.h>
+#import <AsyncDisplayKit/NSIndexSet+ASHelpers.h>
 
 //#define LOG(...) NSLog(__VA_ARGS__)
 #define LOG(...)
@@ -30,6 +31,18 @@
 
 #define RETURN_IF_NO_DATASOURCE(val) if (_dataSource == nil) { return val; }
 #define ASSERT_ON_EDITING_QUEUE ASDisplayNodeAssertNotNil(dispatch_get_specific(&kASDataControllerEditingQueueKey), @"%@ must be called on the editing transaction queue.", NSStringFromSelector(_cmd))
+
+// Dictionary with each entry is a pair of "kind" key and two dimensional array of node contexts
+#define ASNodeContextTwoDimensionalDictionary               NSDictionary<NSString *, NSArray<NSArray<ASIndexedNodeContext *> *> *>
+// Mutable dictionary with each entry is a pair of "kind" key and two dimensional array of node contexts
+#define ASNodeContextTwoDimensionalMutableDictionary        NSMutableDictionary<NSString *, NSMutableArray<NSMutableArray<ASIndexedNodeContext *> *> *>
+
+// Dictionary with each entry is a pair of "kind" key and array of node contexts
+#define ASNodeContextDictionary                   NSMutableDictionary<NSString *, NSMutableArray<ASIndexedNodeContext *> *>
+// Dictionary with each entry is a pair of "kind" key and array of nodes
+#define ASNodeDictionary                          NSMutableDictionary<NSString *, NSMutableArray<ASCellNode *> *>
+
+#define ASHierarchyChange                         id<NSCopying>
 
 const static NSUInteger kASDataControllerSizingCountPerProcessor = 5;
 const static char * kASDataControllerEditingQueueKey = "kASDataControllerEditingQueueKey";
@@ -46,10 +59,12 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 #endif
 
 @interface ASDataController () {
-  NSMutableDictionary *_nodeContexts;       // Main thread only. This is modified immediately during edits i.e. these are in the dataSource's index space.
-  NSMutableArray *_externalCompletedNodes;    // Main thread only.  External data access can immediately query this if available.
-  NSMutableDictionary *_completedNodes;       // Main thread only.  External data access can immediately query this if _externalCompletedNodes is unavailable.
-  NSMutableDictionary *_editingNodes;         // Modified on _editingTransactionQueue only.  Updates propagated to _completedNodes.
+  ASNodeContextTwoDimensionalMutableDictionary *_nodeContexts;       // Main thread only. These are in the dataSource's index space.
+  ASNodeContextTwoDimensionalDictionary *_loadedNodeContexts;        // Main thread only. These are in the UIKit's index space.
+  
+  NSInteger _nextSectionID;
+  NSMutableArray<ASSection *> *_sections;
+  
   BOOL _itemCountsFromDataSourceAreValid;     // Main thread only.
   std::vector<NSInteger> _itemCountsFromDataSource;         // Main thread only.
   
@@ -60,10 +75,17 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   
   BOOL _initialReloadDataHasBeenCalled;
 
-  BOOL _delegateDidInsertNodes;
-  BOOL _delegateDidDeleteNodes;
-  BOOL _delegateDidInsertSections;
-  BOOL _delegateDidDeleteSections;
+  struct {
+    unsigned int didInsertNodes:1;
+    unsigned int didDeleteNodes;
+    unsigned int didInsertSections;
+    unsigned int didDeleteSections;
+  } _delegateFlags;
+  
+  struct {
+    unsigned int constrainedSizeForSupplementaryNodeOfKindAtIndexPath:1;
+    unsigned int supplementaryNodeKindsInDataControllerInSections:1;
+  } _dataSourceFlags;
 }
 
 @end
@@ -85,12 +107,9 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 #endif
   
   _nodeContexts = [NSMutableDictionary dictionary];
-  _completedNodes = [NSMutableDictionary dictionary];
-  _editingNodes = [NSMutableDictionary dictionary];
-
-  _nodeContexts[ASDataControllerRowNodeKind] = [NSMutableArray array];
-  _completedNodes[ASDataControllerRowNodeKind] = [NSMutableArray array];
-  _editingNodes[ASDataControllerRowNodeKind] = [NSMutableArray array];
+  
+  _nextSectionID = 0;
+  _sections = [NSMutableArray array];
   
   _mainSerialQueue = [[ASMainSerialQueue alloc] init];
   
@@ -119,10 +138,10 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   _delegate = delegate;
   
   // Interrogate our delegate to understand its capabilities, optimizing away expensive respondsToSelector: calls later.
-  _delegateDidInsertNodes     = [_delegate respondsToSelector:@selector(dataController:didInsertNodes:atIndexPaths:withAnimationOptions:)];
-  _delegateDidDeleteNodes     = [_delegate respondsToSelector:@selector(dataController:didDeleteNodes:atIndexPaths:withAnimationOptions:)];
-  _delegateDidInsertSections  = [_delegate respondsToSelector:@selector(dataController:didInsertSections:atIndexSet:withAnimationOptions:)];
-  _delegateDidDeleteSections  = [_delegate respondsToSelector:@selector(dataController:didDeleteSectionsAtIndexSet:withAnimationOptions:)];
+  _delegateFlags.didInsertNodes     = [_delegate respondsToSelector:@selector(dataController:didInsertNodes:atIndexPaths:withAnimationOptions:)];
+  _delegateFlags.didDeleteNodes     = [_delegate respondsToSelector:@selector(dataController:didDeleteNodes:atIndexPaths:withAnimationOptions:)];
+  _delegateFlags.didInsertSections  = [_delegate respondsToSelector:@selector(dataController:didInsertSectionsAtIndexSet:withAnimationOptions:)];
+  _delegateFlags.didDeleteSections  = [_delegate respondsToSelector:@selector(dataController:didDeleteSectionsAtIndexSet:withAnimationOptions:)];
 }
 
 + (NSUInteger)parallelProcessorCount
@@ -139,30 +158,32 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 
 #pragma mark - Cell Layout
 
-- (void)batchLayoutNodesFromContexts:(NSArray<ASIndexedNodeContext *> *)contexts batchCompletion:(ASDataControllerCompletionBlock)batchCompletionHandler
+- (void)batchLayoutNodesFromContexts:(NSArray<ASIndexedNodeContext *> *)contexts batchSize:(NSUInteger)batchSize batchCompletion:(ASDataControllerCompletionBlock)batchCompletionHandler
 {
   ASSERT_ON_EDITING_QUEUE;
+  //TODO add back Logs and AS_MEASURE_AVOIDED_DATACONTROLLER_WORK
 #if AS_MEASURE_AVOIDED_DATACONTROLLER_WORK
     [ASDataController _expectToInsertNodes:contexts.count];
 #endif
   
-  if (contexts.count == 0) {
+  if (contexts.count == 0 || _dataSource == nil) {
     batchCompletionHandler(@[], @[]);
     return;
   }
 
   ASProfilingSignpostStart(2, _dataSource);
   
-  NSUInteger blockSize = [[ASDataController class] parallelProcessorCount] * kASDataControllerSizingCountPerProcessor;
+  if (batchSize == 0) {
+    batchSize = [[ASDataController class] parallelProcessorCount] * kASDataControllerSizingCountPerProcessor;
+  }
   NSUInteger count = contexts.count;
   
   // Processing in batches
-  for (NSUInteger i = 0; i < count; i += blockSize) {
-    NSRange batchedRange = NSMakeRange(i, MIN(count - i, blockSize));
+  for (NSUInteger i = 0; i < count; i += batchSize) {
+    NSRange batchedRange = NSMakeRange(i, MIN(count - i, batchSize));
     NSArray<ASIndexedNodeContext *> *batchedContexts = [contexts subarrayWithRange:batchedRange];
-    NSArray *nodes = [self _layoutNodesFromContexts:batchedContexts];
-    NSArray *indexPaths = [ASIndexedNodeContext indexPathsFromContexts:batchedContexts];
-    batchCompletionHandler(nodes, indexPaths);
+    NSArray<ASCellNode *> *nodes = [self _layoutNodesFromContexts:batchedContexts];
+    batchCompletionHandler(batchedContexts, nodes);
   }
   
   ASProfilingSignpostEnd(2, _dataSource);
@@ -178,34 +199,21 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   node.frame = frame;
 }
 
-/**
- * Measures and defines the layout for each node in optimized batches on an editing queue, inserting the results into the backing store.
- */
-- (void)_batchLayoutAndInsertNodesFromContexts:(NSArray<ASIndexedNodeContext *> *)contexts withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASSERT_ON_EDITING_QUEUE;
-  
-  [self batchLayoutNodesFromContexts:contexts batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
-    // Insert finished nodes into data storage
-    [self _insertNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
-  }];
-}
-
 - (NSArray<ASCellNode *> *)_layoutNodesFromContexts:(NSArray<ASIndexedNodeContext *> *)contexts
 {
   ASSERT_ON_EDITING_QUEUE;
   
   NSUInteger nodeCount = contexts.count;
   if (!nodeCount || _dataSource == nil) {
-    return nil;
+    return @[];
   }
 
   __strong ASCellNode **allocatedNodeBuffer = (__strong ASCellNode **)calloc(nodeCount, sizeof(ASCellNode *));
-
+  
   dispatch_queue_t queue = dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
   ASDispatchApply(nodeCount, queue, 0, ^(size_t i) {
     RETURN_IF_NO_DATASOURCE();
-
+    
     // Allocate the node.
     ASIndexedNodeContext *context = contexts[i];
     ASCellNode *node = context.node;
@@ -220,9 +228,9 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 #endif
     allocatedNodeBuffer[i] = node;
   });
-
+  
   BOOL canceled = _dataSource == nil;
-
+  
   // Create nodes array
   NSArray *nodes = canceled ? nil : [NSArray arrayWithObjects:allocatedNodeBuffer count:nodeCount];
   
@@ -231,270 +239,107 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
     allocatedNodeBuffer[i] = nil;
   }
   free(allocatedNodeBuffer);
-
+  
   return nodes;
-}
-
-- (ASSizeRange)constrainedSizeForNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath
-{
-  return [_dataSource dataController:self constrainedSizeForNodeAtIndexPath:indexPath];
-}
-
-#pragma mark - External Data Querying + Editing
-
-- (void)insertNodes:(NSArray *)nodes ofKind:(NSString *)kind atIndexPaths:(NSArray *)indexPaths completion:(ASDataControllerCompletionBlock)completionBlock
-{
-  ASSERT_ON_EDITING_QUEUE;
-  if (!indexPaths.count || _dataSource == nil) {
-    return;
-  }
-
-  NSMutableArray *editingNodes = _editingNodes[kind];
-  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(editingNodes, indexPaths, nodes);
-  
-  // Deep copy is critical here, or future edits to the sub-arrays will pollute state between _editing and _complete on different threads.
-  NSMutableArray *completedNodes = ASTwoDimensionalArrayDeepMutableCopy(editingNodes);
-  
-  [_mainSerialQueue performBlockOnMainThread:^{
-    _completedNodes[kind] = completedNodes;
-    if (completionBlock) {
-      completionBlock(nodes, indexPaths);
-    }
-  }];
-}
-
-- (void)deleteNodesOfKind:(NSString *)kind atIndexPaths:(NSArray *)indexPaths completion:(ASDataControllerCompletionBlock)completionBlock
-{
-  ASSERT_ON_EDITING_QUEUE;
-  if (!indexPaths.count || _dataSource == nil) {
-    return;
-  }
-
-  LOG(@"_deleteNodesAtIndexPaths:%@ ofKind:%@, full index paths in _editingNodes = %@", indexPaths, kind, ASIndexPathsForTwoDimensionalArray(_editingNodes[kind]));
-  ASDeleteElementsInMultidimensionalArrayAtIndexPaths(_editingNodes[kind], indexPaths);
-
-  [_mainSerialQueue performBlockOnMainThread:^{
-    NSMutableArray *allNodes = _completedNodes[kind];
-    NSArray *nodes = ASFindElementsInMultidimensionalArrayAtIndexPaths(allNodes, indexPaths);
-    ASDeleteElementsInMultidimensionalArrayAtIndexPaths(allNodes, indexPaths);
-    if (completionBlock) {
-      completionBlock(nodes, indexPaths);
-    }
-  }];
-}
-
-- (void)insertSections:(NSMutableArray *)sections ofKind:(NSString *)kind atIndexSet:(NSIndexSet *)indexSet completion:(void (^)(NSArray *sections, NSIndexSet *indexSet))completionBlock
-{
-  ASSERT_ON_EDITING_QUEUE;
-  if (!indexSet.count|| _dataSource == nil) {
-    return;
-  }
-
-  if (_editingNodes[kind] == nil) {
-    _editingNodes[kind] = [NSMutableArray array];
-  }
-  
-  [_editingNodes[kind] insertObjects:sections atIndexes:indexSet];
-  
-  // Deep copy is critical here, or future edits to the sub-arrays will pollute state between _editing and _complete on different threads.
-  NSArray *sectionsForCompleted = ASTwoDimensionalArrayDeepMutableCopy(sections);
-  
-  [_mainSerialQueue performBlockOnMainThread:^{
-    [_completedNodes[kind] insertObjects:sectionsForCompleted atIndexes:indexSet];
-    if (completionBlock) {
-      completionBlock(sections, indexSet);
-    }
-  }];
-}
-
-- (void)deleteSections:(NSIndexSet *)indexSet completion:(void (^)())completionBlock
-{
-  ASSERT_ON_EDITING_QUEUE;
-  if (!indexSet.count || _dataSource == nil) {
-    return;
-  }
-
-  [_editingNodes enumerateKeysAndObjectsUsingBlock:^(NSString *  _Nonnull kind, NSMutableArray *sections, BOOL * _Nonnull stop) {
-    [sections removeObjectsAtIndexes:indexSet];
-  }];
-  [_mainSerialQueue performBlockOnMainThread:^{
-    [_completedNodes enumerateKeysAndObjectsUsingBlock:^(NSString *  _Nonnull kind, NSMutableArray *sections, BOOL * _Nonnull stop) {
-      [sections removeObjectsAtIndexes:indexSet];
-    }];
-    if (completionBlock) {
-      completionBlock();
-    }
-  }];
-}
-
-#pragma mark - Internal Data Querying + Editing
-
-/**
- * Inserts the specified nodes into the given index paths and notifies the delegate of newly inserted nodes.
- *
- * @discussion Nodes are first inserted into the editing store, then the completed store is replaced by a deep copy
- * of the editing nodes. The delegate is invoked on the main thread.
- */
-- (void)_insertNodes:(NSArray *)nodes atIndexPaths:(NSArray *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASSERT_ON_EDITING_QUEUE;
-  
-  [self insertNodes:nodes ofKind:ASDataControllerRowNodeKind atIndexPaths:indexPaths completion:^(NSArray *nodes, NSArray *indexPaths) {
-    ASDisplayNodeAssertMainThread();
-    
-    if (_delegateDidInsertNodes)
-      [_delegate dataController:self didInsertNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
-  }];
-}
-
-/**
- * Removes the specified nodes at the given index paths and notifies the delegate of the nodes removed.
- *
- * @discussion Nodes are first removed from the editing store then removed from the completed store on the main thread.
- * Once the backing stores are consistent, the delegate is invoked on the main thread.
- */
-- (void)_deleteNodesAtIndexPaths:(NSArray *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASSERT_ON_EDITING_QUEUE;
-  
-  [self deleteNodesOfKind:ASDataControllerRowNodeKind atIndexPaths:indexPaths completion:^(NSArray *nodes, NSArray *indexPaths) {
-    ASDisplayNodeAssertMainThread();
-    
-    if (_delegateDidDeleteNodes)
-      [_delegate dataController:self didDeleteNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
-  }];
-}
-
-/**
- * Inserts sections, represented as arrays, into the backing store at the given indices and notifies the delegate.
- *
- * @discussion The section arrays are inserted into the editing store, then a deep copy of the sections are inserted
- * in the completed store on the main thread. The delegate is invoked on the main thread.
- */
-- (void)_insertSections:(NSMutableArray *)sections atIndexSet:(NSIndexSet *)indexSet withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASSERT_ON_EDITING_QUEUE;
-  
-  [self insertSections:sections ofKind:ASDataControllerRowNodeKind atIndexSet:indexSet completion:^(NSArray *sections, NSIndexSet *indexSet) {
-    ASDisplayNodeAssertMainThread();
-    
-    if (_delegateDidInsertSections)
-      [_delegate dataController:self didInsertSections:sections atIndexSet:indexSet withAnimationOptions:animationOptions];
-  }];
-}
-
-/**
- * Removes sections at the given indices from the backing store and notifies the delegate.
- *
- * @discussion Section array are first removed from the editing store, then the associated section in the completed
- * store is removed on the main thread. The delegate is invoked on the main thread.
- */
-- (void)_deleteSectionsAtIndexSet:(NSIndexSet *)indexSet withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASSERT_ON_EDITING_QUEUE;
-  
-  [self deleteSections:indexSet completion:^() {
-    ASDisplayNodeAssertMainThread();
-    
-    if (_delegateDidDeleteSections)
-      [_delegate dataController:self didDeleteSectionsAtIndexSet:indexSet withAnimationOptions:animationOptions];
-  }];
 }
 
 #pragma mark - Initial Load & Full Reload (External API)
 
 - (void)reloadDataWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions completion:(void (^)())completion
 {
-  [self _reloadDataWithAnimationOptions:animationOptions synchronously:NO completion:completion];
+  [self _reloadDataWithAnimationOptions:animationOptions completion:completion];
 }
 
 - (void)reloadDataImmediatelyWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
 {
-  [self _reloadDataWithAnimationOptions:animationOptions synchronously:YES completion:nil];
+  [self _reloadDataWithAnimationOptions:animationOptions completion:nil];
+  [self waitUntilAllUpdatesAreCommitted];
 }
 
-- (void)_reloadDataWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions synchronously:(BOOL)synchronously completion:(void (^)())completion
+- (void)_reloadDataWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions completion:(void (^)())completion
 {
   ASDisplayNodeAssertMainThread();
-
-  _initialReloadDataHasBeenCalled = YES;
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-
-  [self invalidateDataSourceItemCounts];
-  NSUInteger sectionCount = [self itemCountsFromDataSource].size();
-  NSIndexSet *sectionIndexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
-  NSArray<ASIndexedNodeContext *> *newContexts = [self _populateNodeContextsFromDataSourceForSections:sectionIndexes];
-
-  // Update _nodeContexts
-  NSMutableArray *allContexts = _nodeContexts[ASDataControllerRowNodeKind];
-  [allContexts removeAllObjects];
-  NSArray *nodeIndexPaths = [ASIndexedNodeContext indexPathsFromContexts:newContexts];
-  for (int i = 0; i < sectionCount; i++) {
-    [allContexts addObject:[[NSMutableArray alloc] init]];
-  }
-  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allContexts, nodeIndexPaths, newContexts);
-
-  // Allow subclasses to perform setup before going into the edit transaction
-  [self prepareForReloadDataWithSectionCount:sectionCount];
   
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    LOG(@"Edit Transaction - reloadData");
-    
-    /**
-     * Leave the current data in the collection view until the first batch of nodes are laid out.
-     * Once the first batch is laid out, in one operation, replace all the sections and insert
-     * the first batch of items.
-     *
-     * We previously would replace all the sections immediately, and then start adding items as they
-     * were laid out. This resulted in more traffic to the UICollectionView and it also caused all the
-     * section headers to bunch up until the items come and fill out the sections.
-     */
-    __block BOOL isFirstBatch = YES;
-    [self batchLayoutNodesFromContexts:newContexts batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
-      if (isFirstBatch) {
-        // -beginUpdates
-        [_mainSerialQueue performBlockOnMainThread:^{
-          [_delegate dataControllerBeginUpdates:self];
-          [_delegate dataControllerWillDeleteAllData:self];
-        }];
-        
-        // deleteSections:
-        // Remove everything that existed before the reload, now that we're ready to insert replacements
-        NSUInteger oldSectionCount = [_editingNodes[ASDataControllerRowNodeKind] count];
-        if (oldSectionCount) {
-          NSIndexSet *indexSet = [[NSIndexSet alloc] initWithIndexesInRange:NSMakeRange(0, oldSectionCount)];
-          [self _deleteSectionsAtIndexSet:indexSet withAnimationOptions:animationOptions];
-        }
-        
-        [self willReloadDataWithSectionCount:sectionCount];
-        
-        // insertSections:
-        NSMutableArray *sections = [NSMutableArray arrayWithCapacity:sectionCount];
-        for (int i = 0; i < sectionCount; i++) {
-          [sections addObject:[[NSMutableArray alloc] init]];
-        }
-        [self _insertSections:sections atIndexSet:sectionIndexes withAnimationOptions:animationOptions];
-      }
-      
-      // insertItemsAtIndexPaths:
-      [self _insertNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
-      
-      if (isFirstBatch) {
-        // -endUpdates
-        [_mainSerialQueue performBlockOnMainThread:^{
-          [_delegate dataController:self endUpdatesAnimated:NO completion:nil];
-        }];
-        isFirstBatch = NO;
-      }
-    }];
-    
-    if (completion) {
-      [_mainSerialQueue performBlockOnMainThread:completion];
-    }
-  });
-  if (synchronously) {
-    [self waitUntilAllUpdatesAreCommitted];
-  }
+  //TODO use 2 change sets here
+
+//  _initialReloadDataHasBeenCalled = YES;
+//  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
+//
+//  [self invalidateDataSourceItemCounts];
+//  NSUInteger sectionCount = [self itemCountsFromDataSource].size();
+//  NSIndexSet *sectionIndexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
+//  NSArray<ASIndexedNodeContext *> *newContexts = [self _populateNodeContextsFromDataSourceWithSections:sectionIndexes environment:];
+//
+//  // Update _nodeContexts
+//  NSMutableArray *allContexts = _nodeContexts[ASDataControllerRowNodeKind];
+//  [allContexts removeAllObjects];
+//  NSArray *nodeIndexPaths = [ASIndexedNodeContext indexPathsFromContexts:newContexts];
+//  for (int i = 0; i < sectionCount; i++) {
+//    [allContexts addObject:[[NSMutableArray alloc] init]];
+//  }
+//  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allContexts, nodeIndexPaths, newContexts);
+//
+//  // Allow subclasses to perform setup before going into the edit transaction
+//  [self prepareForReloadDataWithSectionCount:sectionCount];
+//  
+//  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
+//    LOG(@"Edit Transaction - reloadData");
+//    
+//    /**
+//     * Leave the current data in the collection view until the first batch of nodes are laid out.
+//     * Once the first batch is laid out, in one operation, replace all the sections and insert
+//     * the first batch of items.
+//     *
+//     * We previously would replace all the sections immediately, and then start adding items as they
+//     * were laid out. This resulted in more traffic to the UICollectionView and it also caused all the
+//     * section headers to bunch up until the items come and fill out the sections.
+//     */
+//    __block BOOL isFirstBatch = YES;
+//    [self batchLayoutNodesFromContexts:newContexts batchSize:0 batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
+//      
+//      //TODO Main thread here
+//      
+//      if (isFirstBatch) {
+//        // -beginUpdates
+//        [_mainSerialQueue performBlockOnMainThread:^{
+//          [_delegate dataControllerBeginUpdates:self];
+//          [_delegate dataControllerWillDeleteAllData:self];
+//        }];
+//        
+//        // deleteSections:
+//        // Remove everything that existed before the reload, now that we're ready to insert replacements
+//        NSUInteger oldSectionCount = [_editingNodes[ASDataControllerRowNodeKind] count];
+//        if (oldSectionCount) {
+//          NSIndexSet *indexSet = [[NSIndexSet alloc] initWithIndexesInRange:NSMakeRange(0, oldSectionCount)];
+//          [self _deleteSectionsAtIndexSet:indexSet withAnimationOptions:animationOptions];
+//        }
+//        
+//        [self willReloadDataWithSectionCount:sectionCount];
+//        
+//        // insertSections:
+//        NSMutableArray *sections = [NSMutableArray arrayWithCapacity:sectionCount];
+//        for (int i = 0; i < sectionCount; i++) {
+//          [sections addObject:[[NSMutableArray alloc] init]];
+//        }
+//        [self _insertSections:sections atIndexSet:sectionIndexes withAnimationOptions:animationOptions];
+//      }
+//      
+//      // insertItemsAtIndexPaths:
+//      [self _insertNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
+//      
+//      if (isFirstBatch) {
+//        // -endUpdates
+//        [_mainSerialQueue performBlockOnMainThread:^{
+//          [_delegate dataController:self endUpdatesAnimated:NO completion:nil];
+//        }];
+//        isFirstBatch = NO;
+//      }
+//    }];
+//    
+//    if (completion) {
+//      [_mainSerialQueue performBlockOnMainThread:completion];
+//    }
+//  });
 }
 
 - (void)waitUntilAllUpdatesAreCommitted
@@ -510,33 +355,108 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 
 #pragma mark - Data Source Access (Calling _dataSource)
 
-/**
- * Fetches row contexts for the provided sections from the data source.
- */
-- (NSArray<ASIndexedNodeContext *> *)_populateNodeContextsFromDataSourceForSections:(NSIndexSet *)sections
+//TODO revisit this
+- (NSArray<NSIndexPath *> *)_allIndexPathsForNodeContextsOfKind:(NSString *)kind inSections:(NSIndexSet *)sections
 {
   ASDisplayNodeAssertMainThread();
   
-  __weak id<ASTraitEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
+  if (sections.count == 0 || _dataSource == nil) {
+    return @[];
+  }
   
-  std::vector<NSInteger> counts = [self itemCountsFromDataSource];
-  NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray array];
-  [sections enumerateRangesUsingBlock:^(NSRange range, BOOL * _Nonnull stop) {
-    for (NSUInteger sectionIndex = range.location; sectionIndex < NSMaxRange(range); sectionIndex++) {
-      NSUInteger itemCount = counts[sectionIndex];
-      for (NSUInteger i = 0; i < itemCount; i++) {
-        NSIndexPath *indexPath = [NSIndexPath indexPathForItem:i inSection:sectionIndex];
-        ASCellNodeBlock nodeBlock = [_dataSource dataController:self nodeBlockAtIndexPath:indexPath];
-        
-        ASSizeRange constrainedSize = [self constrainedSizeForNodeOfKind:ASDataControllerRowNodeKind atIndexPath:indexPath];
-        [contexts addObject:[[ASIndexedNodeContext alloc] initWithNodeBlock:nodeBlock
-                                                                  indexPath:indexPath
-                                                   supplementaryElementKind:nil
-                                                            constrainedSize:constrainedSize
-                                                                environment:environment]];
+  NSMutableArray<NSIndexPath *> *indexPaths = [NSMutableArray array];
+  if ([kind isEqualToString:ASDataControllerRowNodeKind]) {
+    std::vector<NSInteger> counts = [self itemCountsFromDataSource];
+    [sections enumerateRangesUsingBlock:^(NSRange range, BOOL * _Nonnull stop) {
+      for (NSUInteger sectionIndex = range.location; sectionIndex < NSMaxRange(range); sectionIndex++) {
+        NSUInteger itemCount = counts[sectionIndex];
+        for (NSUInteger i = 0; i < itemCount; i++) {
+          [indexPaths addObject:[NSIndexPath indexPathForItem:i inSection:sectionIndex]];
+        }
       }
+    }];
+  } else {
+    [sections enumerateRangesUsingBlock:^(NSRange range, BOOL * _Nonnull stop) {
+      for (NSUInteger sectionIndex = range.location; sectionIndex < NSMaxRange(range); sectionIndex++) {
+        NSUInteger itemCount = [_dataSource dataController:self supplementaryNodesOfKind:kind inSection:sectionIndex];
+        for (NSUInteger i = 0; i < itemCount; i++) {
+          [indexPaths addObject:[NSIndexPath indexPathForItem:i inSection:sectionIndex]];
+        }
+      }
+    }];
+  }
+  
+  return indexPaths;
+}
+
+// Aggressively repopulate supplementary nodes (#1773 & #1629)
+- (void)_repopulateSupplementaryNodesForAllSectionsContainingIndexPaths:(NSArray<NSIndexPath *> *)originalIndexPaths
+                                                            environment:(id<ASEnvironment>)environment
+{
+  ASDisplayNodeAssertMainThread();
+  
+  if (originalIndexPaths.count ==  0) {
+    return;
+  }
+  
+  // Get all the sections that need to be reloaded
+  NSIndexSet *sectionIndexes = [NSIndexSet as_sectionsFromIndexPaths:originalIndexPaths];
+  for (NSString *kind in [self supplementaryKindsInSections:sectionIndexes]) {
+    // Step 1: Remove all existing contexts of this kind in these sections
+    // TODO: NSEnumerationConcurrent?
+    [_nodeContexts[kind] enumerateObjectsAtIndexes:sectionIndexes options:0 usingBlock:^(NSMutableArray<ASIndexedNodeContext *> * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+      [obj removeAllObjects];
+    }];
+    // Step 2: Populate and insert new contexts for all index paths in these sections
+    [self _populateAndInsertNodeContextsOfKind:kind forSections:sectionIndexes environment:environment];
+  }
+}
+
+- (void)_populateAndInsertNodeContextsOfKind:(NSString *)kind
+                                 forSections:(NSIndexSet *)sections
+                                 environment:(id<ASEnvironment>)environment
+{
+  ASDisplayNodeAssertMainThread();
+  
+  if (sections.count == 0) {
+    return;
+  }
+  
+  NSArray<NSIndexPath *> *indexPaths = [self _allIndexPathsForNodeContextsOfKind:kind inSections:sections];
+  NSMutableArray<ASIndexedNodeContext *> *contexts = [self _populateNodeContextsOfKind:kind
+                                                                          atIndexPaths:indexPaths
+                                                                           environment:environment];
+  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(_nodeContexts[kind], indexPaths, contexts);
+}
+
+- (NSMutableArray<ASIndexedNodeContext *> *)_populateNodeContextsOfKind:(NSString *)kind
+                                                           atIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
+                                                            environment:(id<ASEnvironment>)environment
+{
+  ASDisplayNodeAssertMainThread();
+  
+  if (indexPaths.count == 0 || _dataSource == nil) {
+    return [NSMutableArray array];
+  }
+  
+  LOG(@"Populating elements of kind: %@, for index paths: %@", kind, allIndexPaths);
+  NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray arrayWithCapacity:indexPaths.count];
+  for (NSIndexPath *indexPath in indexPaths) {
+    BOOL isRowKind = [kind isEqualToString:ASDataControllerRowNodeKind];
+    ASCellNodeBlock nodeBlock;
+    if (isRowKind) {
+      nodeBlock = [_dataSource dataController:self nodeBlockAtIndexPath:indexPath];
+    } else {
+      nodeBlock = [_dataSource dataController:self supplementaryNodeBlockOfKind:kind atIndexPath:indexPath];
     }
-  }];
+    
+    ASSizeRange constrainedSize = [self constrainedSizeForNodeOfKind:kind atIndexPath:indexPath];
+    [contexts addObject:[[ASIndexedNodeContext alloc] initWithNodeBlock:nodeBlock
+                                                              indexPath:indexPath
+                                               supplementaryElementKind:isRowKind ? nil : kind
+                                                        constrainedSize:constrainedSize
+                                                            environment:environment]];
+  }
   return contexts;
 }
 
@@ -563,43 +483,31 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   return _itemCountsFromDataSource;
 }
 
+- (NSArray<NSString *> *)supplementaryKindsInSections:(NSIndexSet *)sections
+{
+  if (_dataSourceFlags.supplementaryNodeKindsInDataControllerInSections) {
+    return [_dataSource supplementaryNodeKindsInDataController:self sections:sections];
+  }
+  
+  return @[];
+}
+
+- (ASSizeRange)constrainedSizeForNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath
+{
+  ASDisplayNodeAssertMainThread();
+  if ([kind isEqualToString:ASDataControllerRowNodeKind]) {
+    return [_dataSource dataController:self constrainedSizeForNodeAtIndexPath:indexPath];
+  }
+  
+  if (_dataSourceFlags.constrainedSizeForSupplementaryNodeOfKindAtIndexPath){
+    return [_dataSource dataController:self constrainedSizeForSupplementaryNodeOfKind:kind atIndexPath:indexPath];
+  }
+  
+  ASDisplayNodeAssert(NO, @"Unknown constrained size for node of kind %@ by data source %@", kind, _dataSource);
+  return ASSizeRangeMake(CGSizeZero, CGSizeZero);
+}
+
 #pragma mark - Batching (External API)
-
-- (void)beginUpdates
-{
-  ASDisplayNodeAssertMainThread();
-  // TODO: make this -waitUntilAllUpdatesAreCommitted?
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    [_mainSerialQueue performBlockOnMainThread:^{
-      // Deep copy _completedNodes to _externalCompletedNodes.
-      // Any external queries from now on will be done on _externalCompletedNodes, to guarantee data consistency with the delegate.
-      _externalCompletedNodes = ASTwoDimensionalArrayDeepMutableCopy(_completedNodes[ASDataControllerRowNodeKind]);
-
-      LOG(@"beginUpdates - begin updates call to delegate");
-      [_delegate dataControllerBeginUpdates:self];
-    }];
-  });
-}
-
-- (void)endUpdatesAnimated:(BOOL)animated completion:(void (^)(BOOL))completion
-{
-  LOG(@"endUpdatesWithCompletion - beginning");
-  ASDisplayNodeAssertMainThread();
-
-  // Running these commands may result in blocking on an _editingTransactionQueue operation that started even before -beginUpdates.
-  // Each subsequent command in the queue will also wait on the full asynchronous completion of the prior command's edit transaction.
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    [_mainSerialQueue performBlockOnMainThread:^{
-      // Now that the transaction is done, _completedNodes can be accessed externally again.
-      _externalCompletedNodes = nil;
-      
-      LOG(@"endUpdatesWithCompletion - calling delegate end");
-      [_delegate dataController:self endUpdatesAnimated:animated completion:completion];
-    }];
-  });
-}
 
 - (void)updateWithChangeSet:(_ASHierarchyChangeSet *)changeSet animated:(BOOL)animated
 {
@@ -638,223 +546,155 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   
   ASDataControllerLogEvent(self, @"triggeredUpdate: %@", changeSet);
   
-  [self beginUpdates];
+  // Step 1: populate new contexts (if any) and update _nodeContexts.
+  // After this step, _nodeContexts is up-to-date with dataSource's index space.
+  [self populateAndUpdateNodeContextsWithChangeSet:changeSet];
   
+  
+  
+  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
+    
+    // Step 2: Layout **all** new contexts without batching in background.
+    // This step doesn't change any internal state.
+    
+    //TODO flatten _nodeContexts
+//    NSArray *insertedContexts = [insertedContextsMap.allValues valueForKeyPath: @"@unionOfArrays.self"];
+    
+    [self batchLayoutNodesFromContexts:insertedContexts batchSize:insertedContexts.count batchCompletion:^(NSArray *, NSArray *) {
+      ASSERT_ON_EDITING_QUEUE;
+      
+      [_mainSerialQueue performBlockOnMainThread:^{
+        
+        // TODO Redo Automatic content offset adjustment by diffing current old and new _loadedNodeContexts
+        
+        // Step 3: Now that _loadedNodeContexts is ready, call UIKit to update using the original change set.
+        [self forwardChangeSetToDelegate:changeSet
+                        insertedNodesMap:nil
+                         deletedNodesMap:nil
+                                animated:animated];
+      }];
+    }];
+  });
+}
+
+
+
+
+//TODO revisit this method name
+- (void)populateAndUpdateNodeContextsWithChangeSet:(_ASHierarchyChangeSet * _Nonnull)changeSet
+{
+  ASDisplayNodeAssertMainThread();
+
+  __weak id<ASEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
+
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeDelete]) {
-    [self deleteRowsAtIndexPaths:change.indexPaths withAnimationOptions:change.animationOptions];
+    ASDeleteElementsInMultidimensionalArrayAtIndexPaths(_nodeContexts[ASDataControllerRowNodeKind], change.indexPaths);
+    [self _repopulateSupplementaryNodesForAllSectionsContainingIndexPaths:change.indexPaths environment:environment];
   }
-  
+
   for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeDelete]) {
-    [self deleteSections:change.indexSet withAnimationOptions:change.animationOptions];
+    [_sections removeObjectsAtIndexes:change.indexSet];
+    [_nodeContexts[ASDataControllerRowNodeKind] removeObjectsAtIndexes:change.indexSet];
   }
   
   for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeInsert]) {
-    [self insertSections:change.indexSet withAnimationOptions:change.animationOptions];
+    NSIndexSet *sectionIndexes = change.indexSet;
+    
+    //TODO move ASSections handling to new method
+    // Populate ASSections
+    [sectionIndexes enumerateIndexesUsingBlock:^(NSUInteger idx, BOOL * _Nonnull stop) {
+      id<ASSectionContext> context = [_dataSource dataController:self contextForSection:idx];
+      ASSection *section = [[ASSection alloc] initWithSectionID:_nextSectionID context:context];
+      [_sections insertObject:section atIndex:idx];
+      _nextSectionID++;
+    }];
+    
+    NSMutableArray<NSString *> *kinds = [NSMutableArray arrayWithObject:ASDataControllerRowNodeKind];
+    [kinds addObjectsFromArray:[self supplementaryKindsInSections:sectionIndexes]];
+    
+    for (NSString *kind in kinds) {
+      // Step 1: Ensure _nodeContexts has enough space for new contexts
+      NSMutableArray *nodeContextsOfKind = _nodeContexts[kind];
+      if (nodeContextsOfKind == nil) {
+        nodeContextsOfKind = [NSMutableArray array];
+        _nodeContexts[kind] = nodeContextsOfKind;
+      }
+      NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sectionIndexes.count];
+      for (NSUInteger i = 0; i < sectionIndexes.count; i++) {
+        [sectionArray addObject:[NSMutableArray array]];
+      }
+      [nodeContextsOfKind insertObjects:sectionArray atIndexes:sectionIndexes];
+      // Step 2: Populate and insert new contexts for all index paths in these sections
+      [self _populateAndInsertNodeContextsOfKind:kind forSections:sectionIndexes environment:environment];
+    }
   }
   
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeInsert]) {
-    [self insertRowsAtIndexPaths:change.indexPaths withAnimationOptions:change.animationOptions];
+    NSArray<NSIndexPath *> *indexPaths = change.indexPaths;
+    NSMutableArray<ASIndexedNodeContext *> *rowNodeContexts = [self _populateNodeContextsOfKind:ASDataControllerRowNodeKind
+                                                                                   atIndexPaths:indexPaths
+                                                                                    environment:environment];
+    ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(_nodeContexts[ASDataControllerRowNodeKind], indexPaths, rowNodeContexts);
+
+    // Aggressively repopulate supplementary nodes (#1773 & #1629)
+    [self _repopulateSupplementaryNodesForAllSectionsContainingIndexPaths:indexPaths environment:environment];
+  }
+}
+
+- (void)forwardChangeSetToDelegate:(_ASHierarchyChangeSet * _Nonnull)changeSet
+                  insertedRowNodes:(id _Nullable)insertedRowNodes
+                   deletedRowNodes:(id _Nullable)deletedRowNodes
+                          animated:(BOOL)animated
+{
+  ASDisplayNodeAssertMainThread();
+  
+  [_delegate dataControllerBeginUpdates:self];
+  
+  for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeDelete]) {
+    if (_delegateFlags.didDeleteNodes) {
+      [_delegate dataController:self
+                 didDeleteNodes:deletedRowNodes[change]
+                   atIndexPaths:change.indexPaths
+           withAnimationOptions:change.animationOptions];
+    }
   }
   
+  for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeDelete]) {
+    if (_delegateFlags.didDeleteSections) {
+      [_delegate dataController:self didDeleteSectionsAtIndexSet:change.indexSet withAnimationOptions:change.animationOptions];
+    }
+  }
+  
+  for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeInsert]) {
+    if (_delegateFlags.didInsertSections) {
+      [_delegate dataController:self didInsertSectionsAtIndexSet:change.indexSet withAnimationOptions:change.animationOptions];
+    }
+  }
+  
+  for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeInsert]) {
+    if (_delegateFlags.didInsertNodes) {
+      [_delegate dataController:self
+                 didInsertNodes:insertedRowNodes[change]
+                   atIndexPaths:change.indexPaths
+           withAnimationOptions:change.animationOptions];
+    }
+  }
+  
+  void (^batchCompletion)(BOOL) = changeSet.completionHandler;
 #if ASEVENTLOG_ENABLE
   NSString *changeSetDescription = ASObjectDescriptionMakeTiny(changeSet);
-  batchCompletion = ^(BOOL finished) {
+  [_delegate dataController:self endUpdatesAnimated:animated completion:^(BOOL finished) {
     if (batchCompletion != nil) {
       batchCompletion(finished);
     }
     ASDataControllerLogEvent(self, @"finishedUpdate: %@", changeSetDescription);
-  };
+  }];
+#else
+  [_delegate dataController:self endUpdatesAnimated:animated completion:batchCompletion];
 #endif
-  
-  [self endUpdatesAnimated:animated completion:batchCompletion];
 }
 
-#pragma mark - Section Editing (External API)
-
-- (void)insertSections:(NSIndexSet *)sections withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASDisplayNodeAssertMainThread();
-  LOG(@"Edit Command - insertSections: %@", sections);
-  if (!_initialReloadDataHasBeenCalled) {
-    return;
-  }
-
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-  
-  NSArray<ASIndexedNodeContext *> *contexts = [self _populateNodeContextsFromDataSourceForSections:sections];
-
-  // Update _nodeContexts
-  {
-    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sections.count];
-    for (NSUInteger i = 0; i < sections.count; i++) {
-      [sectionArray addObject:[NSMutableArray array]];
-    }
-    NSMutableArray *allRowContexts = _nodeContexts[ASDataControllerRowNodeKind];
-    [allRowContexts insertObjects:sectionArray atIndexes:sections];
-    ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allRowContexts, [ASIndexedNodeContext indexPathsFromContexts:contexts], contexts);
-  }
-
-  [self prepareForInsertSections:sections];
-  
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    [self willInsertSections:sections];
-
-    LOG(@"Edit Transaction - insertSections: %@", sections);
-    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sections.count];
-    for (NSUInteger i = 0; i < sections.count; i++) {
-      [sectionArray addObject:[NSMutableArray array]];
-    }
-
-    [self _insertSections:sectionArray atIndexSet:sections withAnimationOptions:animationOptions];
-    
-    [self _batchLayoutAndInsertNodesFromContexts:contexts withAnimationOptions:animationOptions];
-  });
-}
-
-- (void)deleteSections:(NSIndexSet *)sections withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASDisplayNodeAssertMainThread();
-  LOG(@"Edit Command - deleteSections: %@", sections);
-  if (!_initialReloadDataHasBeenCalled) {
-    return;
-  }
-
-  [_nodeContexts[ASDataControllerRowNodeKind] removeObjectsAtIndexes:sections];
-
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-
-  [self prepareForDeleteSections:sections];
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    [self willDeleteSections:sections];
-
-    // remove elements
-    LOG(@"Edit Transaction - deleteSections: %@", sections);
-    [self _deleteSectionsAtIndexSet:sections withAnimationOptions:animationOptions];
-  });
-}
-
-#pragma mark - Backing store manipulation optional hooks (Subclass API)
-
-- (void)prepareForReloadDataWithSectionCount:(NSInteger)newSectionCount
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)willReloadDataWithSectionCount:(NSInteger)newSectionCount
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)prepareForInsertSections:(NSIndexSet *)sections
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)prepareForDeleteSections:(NSIndexSet *)sections
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)willInsertSections:(NSIndexSet *)sections
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)willDeleteSections:(NSIndexSet *)sections
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)willMoveSection:(NSInteger)section toSection:(NSInteger)newSection
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)prepareForInsertRowsAtIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)willInsertRowsAtIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)prepareForDeleteRowsAtIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-- (void)willDeleteRowsAtIndexPaths:(NSArray<NSIndexPath *> *)indexPaths
-{
-  // Optional template hook for subclasses (See ASDataController+Subclasses.h)
-}
-
-#pragma mark - Row Editing (External API)
-
-- (void)insertRowsAtIndexPaths:(NSArray *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASDisplayNodeAssertMainThread();
-  if (!_initialReloadDataHasBeenCalled) {
-    return;
-  }
-
-  LOG(@"Edit Command - insertRows: %@", indexPaths);
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-
-  // Sort indexPath to avoid messing up the index when inserting in several batches
-  NSArray *sortedIndexPaths = [indexPaths sortedArrayUsingSelector:@selector(compare:)];
-  NSMutableArray<ASIndexedNodeContext *> *contexts = [[NSMutableArray alloc] initWithCapacity:indexPaths.count];
-
-  __weak id<ASTraitEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
-  
-  for (NSIndexPath *indexPath in sortedIndexPaths) {
-    ASCellNodeBlock nodeBlock = [_dataSource dataController:self nodeBlockAtIndexPath:indexPath];
-    ASSizeRange constrainedSize = [self constrainedSizeForNodeOfKind:ASDataControllerRowNodeKind atIndexPath:indexPath];
-    [contexts addObject:[[ASIndexedNodeContext alloc] initWithNodeBlock:nodeBlock
-                                                              indexPath:indexPath
-                                               supplementaryElementKind:nil
-                                                        constrainedSize:constrainedSize
-                                                            environment:environment]];
-  }
-
-  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(_nodeContexts[ASDataControllerRowNodeKind], sortedIndexPaths, contexts);
-  [self prepareForInsertRowsAtIndexPaths:indexPaths];
-
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    [self willInsertRowsAtIndexPaths:indexPaths];
-
-    LOG(@"Edit Transaction - insertRows: %@", indexPaths);
-    [self _batchLayoutAndInsertNodesFromContexts:contexts withAnimationOptions:animationOptions];
-  });
-}
-
-- (void)deleteRowsAtIndexPaths:(NSArray *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  ASDisplayNodeAssertMainThread();
-
-  if (!_initialReloadDataHasBeenCalled) {
-    return;
-  }
-
-  LOG(@"Edit Command - deleteRows: %@", indexPaths);
-
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-  
-  // Sort indexPath in order to avoid messing up the index when deleting in several batches.
-  // FIXME: Shouldn't deletes be sorted in descending order?
-  NSArray *sortedIndexPaths = [indexPaths sortedArrayUsingSelector:@selector(compare:)];
-
-  ASDeleteElementsInMultidimensionalArrayAtIndexPaths(_nodeContexts[ASDataControllerRowNodeKind], sortedIndexPaths);
-  [self prepareForDeleteRowsAtIndexPaths:sortedIndexPaths];
-
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    [self willDeleteRowsAtIndexPaths:sortedIndexPaths];
-
-    LOG(@"Edit Transaction - deleteRows: %@", indexPaths);
-    [self _deleteNodesAtIndexPaths:sortedIndexPaths withAnimationOptions:animationOptions];
-  });
-}
+#pragma mark - Relayout
 
 - (void)relayoutAllNodes
 {
@@ -862,10 +702,10 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   if (!_initialReloadDataHasBeenCalled) {
     return;
   }
-
+  
   LOG(@"Edit Command - relayoutRows");
   dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-
+  
   // Can't relayout right away because _completedNodes may not be up-to-date,
   // i.e there might be some nodes that were measured using the old constrained size but haven't been added to _completedNodes
   // (see _layoutNodes:atIndexPaths:withAnimationOptions:).
@@ -901,11 +741,6 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 }
 
 #pragma mark - Data Querying (Subclass API)
-
-- (NSMutableArray *)editingNodesOfKind:(NSString *)kind
-{
-  return _editingNodes[kind] ? : [NSMutableArray array];
-}
 
 - (NSMutableArray *)completedNodesOfKind:(NSString *)kind
 {
@@ -1045,13 +880,12 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
 - (NSArray *)completedNodes
 {
   ASDisplayNodeAssertMainThread();
-  return _externalCompletedNodes ? : _completedNodes[ASDataControllerRowNodeKind];
+  return _completedNodes[ASDataControllerRowNodeKind];
 }
 
 - (void)moveCompletedNodeAtIndexPath:(NSIndexPath *)indexPath toIndexPath:(NSIndexPath *)newIndexPath
 {
   ASDisplayNodeAssertMainThread();
-  ASMoveElementInTwoDimensionalArray(_externalCompletedNodes, indexPath, newIndexPath);
   ASMoveElementInTwoDimensionalArray(_completedNodes[ASDataControllerRowNodeKind], indexPath, newIndexPath);
 }
 
