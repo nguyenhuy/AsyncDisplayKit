@@ -41,11 +41,6 @@
 // Mutable dictionary with each entry is a pair of "kind" key and two dimensional array of node contexts
 #define ASNodeContextTwoDimensionalMutableDictionary        NSMutableDictionary<NSString *, ASNodeContextTwoDimensionalMutableArray *>
 
-// Dictionary with each entry is a pair of "kind" key and array of node contexts
-#define ASNodeContextDictionary                   NSMutableDictionary<NSString *, NSMutableArray<ASIndexedNodeContext *> *>
-// Dictionary with each entry is a pair of "kind" key and array of nodes
-#define ASNodeDictionary                          NSMutableDictionary<NSString *, NSMutableArray<ASCellNode *> *>
-
 #define ASHierarchyChange                         id<NSCopying>
 
 const static NSUInteger kASDataControllerSizingCountPerProcessor = 5;
@@ -66,7 +61,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 
 @interface ASDataController () {
   ASNodeContextTwoDimensionalMutableDictionary *_nodeContexts;       // Main thread only. These are in the dataSource's index space.
-  ASNodeContextTwoDimensionalDictionary *_loadedNodeContexts;        // Main thread only. These are in the UIKit's index space.
+  ASNodeContextTwoDimensionalDictionary *_completedNodeContexts;        // Main thread only. These are in the UIKit's index space.
   
   NSInteger _nextSectionID;
   NSMutableArray<ASSection *> *_sections;
@@ -361,7 +356,6 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 
 #pragma mark - Data Source Access (Calling _dataSource)
 
-//TODO revisit this
 - (NSArray<NSIndexPath *> *)_allIndexPathsForNodeContextsOfKind:(NSString *)kind inSections:(NSIndexSet *)sections
 {
   ASDisplayNodeAssertMainThread();
@@ -583,7 +577,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   BOOL hasNewContexts = [self updateNodeContextsWithChangeSet:changeSet];
   
   // Prepare loadingNodeContexts to be used in editing queue.
-  // Deep copy is critical here, or future edits to the sub-arrays will pollute state between _nodeContexts and _loadedNodeContexts on different threads.
+  // Deep copy is critical here, or future edits to the sub-arrays will pollute state between _nodeContexts and _completedNodeContexts on different threads.
   NSMutableArray<ASNodeContextTwoDimensionalArray *> *deepCopiedSections = [NSMutableArray arrayWithCapacity:_nodeContexts.count];
   for (ASNodeContextTwoDimensionalArray *sections in _nodeContexts.allValues) {
     [deepCopiedSections addObject:ASTwoDimensionalArrayDeepMutableCopy(sections)];
@@ -608,11 +602,11 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
       ASSERT_ON_EDITING_QUEUE;
       [_mainSerialQueue performBlockOnMainThread:^{
         // Because loadingNodeContexts is immutable, it can be safely assigned to _loadNodeContexts instead of deep copied.
-        _loadedNodeContexts = loadingNodeContexts;
+        _completedNodeContexts = loadingNodeContexts;
         
-        // TODO Redo Automatic content offset adjustment by diffing old and new _loadedNodeContexts
+        // TODO Redo Automatic content offset adjustment by diffing old and new _completedNodeContexts
         
-        // Step 3: Now that _loadedNodeContexts is ready, call UIKit to update using the original change set.
+        // Step 3: Now that _completedNodeContexts is ready, call UIKit to update using the original change set.
         [self forwardChangeSetToDelegate:changeSet insertedRowNodes:nil deletedRowNodes:nil animated:animated];
       }];
     }];
@@ -655,8 +649,6 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 
   __weak id<ASTraitEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
   BOOL result = NO;
-
-  //TODO lazily create and cache result of [self supplementaryKindsInSections:sectionIndexes] within this method call
   
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeDelete]) {
     ASDeleteElementsInMultidimensionalArrayAtIndexPaths(_nodeContexts[ASDataControllerRowNodeKind], change.indexPaths);
@@ -776,12 +768,11 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   LOG(@"Edit Command - relayoutRows");
   dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
   
-  // Can't relayout right away because _loadedNodeContexts may not be up-to-date,
-  // i.e there might be some nodes that were measured using the old constrained size but haven't been added to _completedNodes
-  // (see _layoutNodes:atIndexPaths:withAnimationOptions:).
+  // Can't relayout right away because _completedNodeContexts may not be up-to-date,
+  // i.e there might be some nodes that were measured using the old constrained size but haven't been added to _completedNodeContexts
   dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
     [_mainSerialQueue performBlockOnMainThread:^{
-      for (NSString *kind in _loadedNodeContexts) {
+      for (NSString *kind in _completedNodeContexts) {
         [self _relayoutNodesOfKind:kind];
       }
     }];
@@ -791,7 +782,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 - (void)_relayoutNodesOfKind:(NSString *)kind
 {
   ASDisplayNodeAssertMainThread();
-  NSArray *contexts = _loadedNodeContexts[kind];
+  NSArray *contexts = _completedNodeContexts[kind];
   if (!contexts.count) {
     return;
   }
@@ -836,13 +827,13 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 - (NSUInteger)completedNumberOfSections
 {
   ASDisplayNodeAssertMainThread();
-  return [_loadedNodeContexts[ASDataControllerRowNodeKind] count];
+  return [_completedNodeContexts[ASDataControllerRowNodeKind] count];
 }
 
 - (NSUInteger)completedNumberOfRowsInSection:(NSUInteger)section
 {
   ASDisplayNodeAssertMainThread();
-  NSArray *completedNodes = _loadedNodeContexts[ASDataControllerRowNodeKind];
+  NSArray *completedNodes = _completedNodeContexts[ASDataControllerRowNodeKind];
   return (section < completedNodes.count) ? [completedNodes[section] count] : 0;
 }
 
@@ -854,18 +845,8 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   }
   
   NSArray *contexts = _nodeContexts[ASDataControllerRowNodeKind];
-  NSInteger section = indexPath.section;
-  NSInteger row = indexPath.row;
-  ASIndexedNodeContext *context = nil;
-
-  if (section >= 0 && row >= 0 && section < contexts.count) {
-    NSArray *completedNodesSection = contexts[section];
-    if (row < completedNodesSection.count) {
-      context = completedNodesSection[row];
-    }
-  }
-  // TODO This can probably force a node to be allocated, do we really want this?
-  return context.node;
+  ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(contexts, indexPath);
+  return context.nodeIfAllocated;
 }
 
 - (ASCellNode *)nodeAtCompletedIndexPath:(NSIndexPath *)indexPath
@@ -875,95 +856,87 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
     return nil;
   }
 
-  //TODO Use ASFindElement...?
-  NSArray *completedNodes = _loadedNodeContexts[ASDataControllerRowNodeKind];
-  NSInteger section = indexPath.section;
-  NSInteger row = indexPath.row;
-  ASIndexedNodeContext *context = nil;
-
-  if (section >= 0 && row >= 0 && section < completedNodes.count) {
-    NSArray *completedNodesSection = completedNodes[section];
-    if (row < completedNodesSection.count) {
-      context = completedNodesSection[row];
-    }
-  }
-  // TODO Node may not be allocated and laid out yet (e.g node virtualization or same size optimization)
-  // Force synchronous allocation and layout pass in that case?
+  NSArray *completedNodes = _completedNodeContexts[ASDataControllerRowNodeKind];
+  ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(completedNodes, indexPath);
+  // Note: Node may not be allocated and laid out yet (e.g node virtualization or same size optimization)
+  // TODO: Force synchronous allocation and layout pass in that case?
   return context.node;
 }
 
-// HERE |
-//      v
-
 - (NSIndexPath *)indexPathForNode:(ASCellNode *)cellNode;
+{
+  ASDisplayNodeAssertMainThread();
+  return [self _indexPathForNode:cellNode inContexts:_nodeContexts];
+}
+
+- (NSIndexPath *)completedIndexPathForNode:(ASCellNode *)cellNode
+{
+  ASDisplayNodeAssertMainThread();
+  return [self _indexPathForNode:cellNode inContexts:_completedNodeContexts];
+}
+
+- (NSIndexPath *)_indexPathForNode:(ASCellNode *)cellNode inContexts:(ASNodeContextTwoDimensionalDictionary *)contexts
 {
   ASDisplayNodeAssertMainThread();
   if (cellNode == nil) {
     return nil;
   }
-
+  
   NSString *kind = cellNode.supplementaryElementKind ?: ASDataControllerRowNodeKind;
-  NSArray *contexts = _nodeContexts[kind];
-
+  ASNodeContextTwoDimensionalArray *sections = contexts[kind];
+  
   // Check if the cached index path is still correct.
   NSIndexPath *indexPath = cellNode.cachedIndexPath;
   if (indexPath != nil) {
-    ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(contexts, indexPath);
+    ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(sections, indexPath);
+    // Use nodeIfAllocated to avoid accidental node allocation and layout
     if (context.nodeIfAllocated == cellNode) {
       return indexPath;
     } else {
       indexPath = nil;
     }
   }
-
+  
   // Loop through each section to look for the node context
-  NSInteger section = 0;
-  for (NSArray<ASIndexedNodeContext *> *nodeContexts in contexts) {
-    NSUInteger item = [nodeContexts indexOfObjectPassingTest:^BOOL(ASIndexedNodeContext * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
+  NSInteger sectionIdx = 0;
+  for (NSArray<ASIndexedNodeContext *> *section in sections) {
+    NSUInteger item = [section indexOfObjectPassingTest:^BOOL(ASIndexedNodeContext * _Nonnull obj, NSUInteger idx, BOOL * _Nonnull stop) {
       return obj.nodeIfAllocated == cellNode;
     }];
     if (item != NSNotFound) {
-      indexPath = [NSIndexPath indexPathForItem:item inSection:section];
+      indexPath = [NSIndexPath indexPathForItem:item inSection:sectionIdx];
       break;
     }
-    section += 1;
+    sectionIdx += 1;
   }
   cellNode.cachedIndexPath = indexPath;
   return indexPath;
 }
 
-- (NSIndexPath *)completedIndexPathForNode:(ASCellNode *)cellNode
-{
-  ASDisplayNodeAssertMainThread();
-  if (cellNode == nil) {
-    return nil;
-  }
-
-  NSInteger section = 0;
-  // Loop through each section to look for the cellNode
-  NSString *kind = cellNode.supplementaryElementKind ?: ASDataControllerRowNodeKind;
-  for (NSArray *sectionNodes in [self completedNodesOfKind:kind]) {
-    NSUInteger item = [sectionNodes indexOfObjectIdenticalTo:cellNode];
-    if (item != NSNotFound) {
-      return [NSIndexPath indexPathForItem:item inSection:section];
-    }
-    section += 1;
-  }
-  
-  return nil;
-}
-
-/// Returns nodes that can be queried externally. _externalCompletedNodes is used if available, _completedNodes otherwise.
+/// Returns nodes that can be queried externally.
 - (NSArray *)completedNodes
 {
   ASDisplayNodeAssertMainThread();
-  return _completedNodes[ASDataControllerRowNodeKind];
+  ASNodeContextTwoDimensionalArray *sections = _completedNodeContexts[ASDataControllerRowNodeKind];
+  NSMutableArray<NSMutableArray<ASCellNode *> *> *completedNodes = [NSMutableArray arrayWithCapacity:sections.count];
+  for (NSArray<ASIndexedNodeContext *> *section in sections) {
+    NSMutableArray<ASCellNode *> *nodesInSection = [NSMutableArray arrayWithCapacity:section.count];
+    for (ASIndexedNodeContext *context in section) {
+      // Note: Node may not be allocated and laid out yet (e.g node virtualization or same size optimization)
+      // TODO: Force synchronous allocation and layout pass in that case?
+      [nodesInSection addObject:context.node];
+    }
+    [completedNodes addObject:nodesInSection];
+  }
+  return completedNodes;
 }
 
 - (void)moveCompletedNodeAtIndexPath:(NSIndexPath *)indexPath toIndexPath:(NSIndexPath *)newIndexPath
 {
   ASDisplayNodeAssertMainThread();
-  ASMoveElementInTwoDimensionalArray(_completedNodes[ASDataControllerRowNodeKind], indexPath, newIndexPath);
+  // TODO Revisit this after native move support. Need to update **both**
+  // _nodeContexts and _completedNodeContexts through a proper threading tunnel.
+  ASMoveElementInTwoDimensionalArray(_nodeContexts[ASDataControllerRowNodeKind], indexPath, newIndexPath);
 }
 
 @end
