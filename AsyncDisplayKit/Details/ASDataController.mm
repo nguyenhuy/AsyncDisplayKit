@@ -22,6 +22,7 @@
 #import <AsyncDisplayKit/ASDispatch.h>
 #import <AsyncDisplayKit/ASInternalHelpers.h>
 #import <AsyncDisplayKit/ASCellNode+Internal.h>
+#import <AsyncDisplayKit/ASDisplayNode+Subclasses.h>
 #import <AsyncDisplayKit/NSIndexSet+ASHelpers.h>
 
 //#define LOG(...) NSLog(__VA_ARGS__)
@@ -33,9 +34,10 @@
 #define ASSERT_ON_EDITING_QUEUE ASDisplayNodeAssertNotNil(dispatch_get_specific(&kASDataControllerEditingQueueKey), @"%@ must be called on the editing transaction queue.", NSStringFromSelector(_cmd))
 
 #define ASNodeContextTwoDimensionalMutableArray NSMutableArray<NSMutableArray<ASIndexedNodeContext *> *>
+#define ASNodeContextTwoDimensionalArray        NSArray<NSArray<ASIndexedNodeContext *> *>
 
 // Dictionary with each entry is a pair of "kind" key and two dimensional array of node contexts
-#define ASNodeContextTwoDimensionalDictionary               NSDictionary<NSString *, NSArray<NSArray<ASIndexedNodeContext *> *> *>
+#define ASNodeContextTwoDimensionalDictionary               NSDictionary<NSString *, ASNodeContextTwoDimensionalArray *>
 // Mutable dictionary with each entry is a pair of "kind" key and two dimensional array of node contexts
 #define ASNodeContextTwoDimensionalMutableDictionary        NSMutableDictionary<NSString *, ASNodeContextTwoDimensionalMutableArray *>
 
@@ -52,6 +54,8 @@ const static char * kASDataControllerEditingQueueContext = "kASDataControllerEdi
 
 NSString * const ASDataControllerRowNodeKind = @"_ASDataControllerRowNodeKind";
 NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdateException";
+
+typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> *contexts, NSArray<ASCellNode *> *nodes);
 
 #if AS_MEASURE_AVOIDED_DATACONTROLLER_WORK
 @interface ASDataController (AvoidedWorkMeasuring)
@@ -578,38 +582,38 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   [self updateSectionContextsWithChangeSet:changeSet];
   BOOL hasNewContexts = [self updateNodeContextsWithChangeSet:changeSet];
   
-  //TODO Use hasNewContexts flag to avoid deep copy, still need to go through the editing queue and main queue though
-  
+  // Prepare loadingNodeContexts to be used in editing queue.
   // Deep copy is critical here, or future edits to the sub-arrays will pollute state between _nodeContexts and _loadedNodeContexts on different threads.
-  ASNodeContextTwoDimensionalMutableDictionary *loadingNodeContexts = [NSMutableDictionary dictionaryWithCapacity:_nodeContexts.count];
-  [_nodeContexts enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull kind, ASNodeContextTwoDimensionalMutableArray * _Nonnull contexts, BOOL * _Nonnull stop) {
-    loadingNodeContexts[kind] = (ASNodeContextTwoDimensionalMutableArray *)ASTwoDimensionalArrayDeepMutableCopy(contexts);
-  }];
+  NSMutableArray<ASNodeContextTwoDimensionalArray *> *deepCopiedSections = [NSMutableArray arrayWithCapacity:_nodeContexts.count];
+  for (ASNodeContextTwoDimensionalArray *sections in _nodeContexts.allValues) {
+    [deepCopiedSections addObject:ASTwoDimensionalArrayDeepMutableCopy(sections)];
+  }
+  ASNodeContextTwoDimensionalDictionary *loadingNodeContexts = [NSDictionary dictionaryWithObjects:deepCopiedSections
+                                                                                           forKeys:_nodeContexts.allKeys];
   
-  //TODO Now that background operations are one-off, consider coallescing them (easier with PINOperation)
-  
-  // HERE  |
-  //       v
   dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    
     // Step 2: Layout **all** new node contexts without batching in background.
     // This step doesn't change any internal state.
-    
-    //TODO flatten _nodeContexts
-//    NSArray *insertedContexts = [insertedContextsMap.allValues valueForKeyPath: @"@unionOfArrays.self"];
-    
-    [self batchLayoutNodesFromContexts:insertedContexts batchSize:insertedContexts.count batchCompletion:^(NSArray *, NSArray *) {
+    NSMutableArray<ASIndexedNodeContext *> *newContexts = [NSMutableArray array];
+    if (hasNewContexts) {
+      for (ASNodeContextTwoDimensionalArray *allSections in loadingNodeContexts.allValues) {
+        for (NSArray<ASIndexedNodeContext *> *section in allSections) {
+          for (ASIndexedNodeContext *context in section) {
+            if (context.nodeIfAllocated == nil) [newContexts addObject:context];
+          }
+        }
+      }
+    }
+    [self batchLayoutNodesFromContexts:newContexts batchSize:newContexts.count batchCompletion:^(id, id) {
       ASSERT_ON_EDITING_QUEUE;
-      
       [_mainSerialQueue performBlockOnMainThread:^{
+        // Because loadingNodeContexts is immutable, it can be safely assigned to _loadNodeContexts instead of deep copied.
+        _loadedNodeContexts = loadingNodeContexts;
         
-        // TODO Redo Automatic content offset adjustment by diffing current old and new _loadedNodeContexts
+        // TODO Redo Automatic content offset adjustment by diffing old and new _loadedNodeContexts
         
         // Step 3: Now that _loadedNodeContexts is ready, call UIKit to update using the original change set.
-        [self forwardChangeSetToDelegate:changeSet
-                        insertedNodesMap:nil
-                         deletedNodesMap:nil
-                                animated:animated];
+        [self forwardChangeSetToDelegate:changeSet insertedRowNodes:nil deletedRowNodes:nil animated:animated];
       }];
     }];
   });
@@ -707,7 +711,7 @@ NSString * const ASCollectionInvalidUpdateException = @"ASCollectionInvalidUpdat
   return result;
 }
 
-- (void)forwardChangeSetToDelegate:(_ASHierarchyChangeSet * _Nonnull)changeSet
+- (void)forwardChangeSetToDelegate:(_ASHierarchyChangeSet *)changeSet
                   insertedRowNodes:(id _Nullable)insertedRowNodes
                    deletedRowNodes:(id _Nullable)deletedRowNodes
                           animated:(BOOL)animated
