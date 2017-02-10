@@ -261,88 +261,87 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 {
   ASDisplayNodeAssertMainThread();
   
-  //TODO use 2 change sets here
+  _initialReloadDataHasBeenCalled = YES;
+  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
 
-//  _initialReloadDataHasBeenCalled = YES;
-//  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-//
-//  [self invalidateDataSourceItemCounts];
-//  NSUInteger sectionCount = [self itemCountsFromDataSource].size();
-//  NSIndexSet *sectionIndexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
-//  NSArray<ASIndexedNodeContext *> *newContexts = [self _populateNodeContextsFromDataSourceWithSections:sectionIndexes environment:];
-//
-//  // Update _nodeContexts
-//  NSMutableArray *allContexts = _nodeContexts[ASDataControllerRowNodeKind];
-//  [allContexts removeAllObjects];
-//  NSArray *nodeIndexPaths = [ASIndexedNodeContext indexPathsFromContexts:newContexts];
-//  for (int i = 0; i < sectionCount; i++) {
-//    [allContexts addObject:[[NSMutableArray alloc] init]];
-//  }
-//  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allContexts, nodeIndexPaths, newContexts);
-//
-//  // Allow subclasses to perform setup before going into the edit transaction
-//  [self prepareForReloadDataWithSectionCount:sectionCount];
-//  
-//  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-//    LOG(@"Edit Transaction - reloadData");
-//    
-//    /**
-//     * Leave the current data in the collection view until the first batch of nodes are laid out.
-//     * Once the first batch is laid out, in one operation, replace all the sections and insert
-//     * the first batch of items.
-//     *
-//     * We previously would replace all the sections immediately, and then start adding items as they
-//     * were laid out. This resulted in more traffic to the UICollectionView and it also caused all the
-//     * section headers to bunch up until the items come and fill out the sections.
-//     */
-//    __block BOOL isFirstBatch = YES;
-//    [self batchLayoutNodesFromContexts:newContexts batchSize:0 batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
-//      
-//      //TODO Main thread here
-//      
-//      if (isFirstBatch) {
-//        // -beginUpdates
-//        [_mainSerialQueue performBlockOnMainThread:^{
-//          [_delegate dataControllerBeginUpdates:self];
-//          [_delegate dataControllerWillDeleteAllData:self];
-//        }];
-//        
-//        // deleteSections:
-//        // Remove everything that existed before the reload, now that we're ready to insert replacements
-//        NSUInteger oldSectionCount = [_editingNodes[ASDataControllerRowNodeKind] count];
-//        if (oldSectionCount) {
-//          NSIndexSet *indexSet = [[NSIndexSet alloc] initWithIndexesInRange:NSMakeRange(0, oldSectionCount)];
-//          [self _deleteSectionsAtIndexSet:indexSet withAnimationOptions:animationOptions];
-//        }
-//        
-//        [self willReloadDataWithSectionCount:sectionCount];
-//        
-//        // insertSections:
-//        NSMutableArray *sections = [NSMutableArray arrayWithCapacity:sectionCount];
-//        for (int i = 0; i < sectionCount; i++) {
-//          [sections addObject:[[NSMutableArray alloc] init]];
-//        }
-//        [self _insertSections:sections atIndexSet:sectionIndexes withAnimationOptions:animationOptions];
-//      }
-//      
-//      // insertItemsAtIndexPaths:
-//      [self _insertNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
-//      
-//      if (isFirstBatch) {
-//        // -endUpdates
-//        [_mainSerialQueue performBlockOnMainThread:^{
-//          [_delegate dataController:self endUpdatesAnimated:NO completion:nil];
-//        }];
-//        isFirstBatch = NO;
-//      }
-//    }];
-//    
-//    if (completion) {
-//      [_mainSerialQueue performBlockOnMainThread:completion];
-//    }
-//  });
+  [self invalidateDataSourceItemCounts];
+  NSUInteger sectionCount = [self itemCountsFromDataSource].size();
+  NSIndexSet *sectionIndexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
+  NSArray<ASIndexedNodeContext *> *newContexts = [self _populateNodeContextsFromDataSourceWithSections:sectionIndexes environment:];
+
+  // Update _nodeContexts
+  NSMutableArray *allContexts = _nodeContexts[ASDataControllerRowNodeKind];
+  [allContexts removeAllObjects];
+  NSArray *nodeIndexPaths = [ASIndexedNodeContext indexPathsFromContexts:newContexts];
+  for (int i = 0; i < sectionCount; i++) {
+    [allContexts addObject:[[NSMutableArray alloc] init]];
+  }
+  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allContexts, nodeIndexPaths, newContexts);
+
+  // Allow subclasses to perform setup before going into the edit transaction
+  [self prepareForReloadDataWithSectionCount:sectionCount];
+  
+  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
+    LOG(@"Edit Transaction - reloadData");
+    
+    /**
+     * Leave the current data in the collection view until the first batch of nodes are laid out.
+     * Once the first batch is laid out, in one operation, replace all the sections and insert
+     * the first batch of items.
+     *
+     * We previously would replace all the sections immediately, and then start adding items as they
+     * were laid out. This resulted in more traffic to the UICollectionView and it also caused all the
+     * section headers to bunch up until the items come and fill out the sections.
+     */
+    __block BOOL isFirstBatch = YES;
+    [self batchLayoutNodesFromContexts:newContexts batchSize:0 batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
+      
+      //TODO Main thread here
+      
+      if (isFirstBatch) {
+        // -beginUpdates
+        [_mainSerialQueue performBlockOnMainThread:^{
+          [_delegate dataControllerBeginUpdates:self];
+          [_delegate dataControllerWillDeleteAllData:self];
+        }];
+        
+        // deleteSections:
+        // Remove everything that existed before the reload, now that we're ready to insert replacements
+        NSUInteger oldSectionCount = [_editingNodes[ASDataControllerRowNodeKind] count];
+        if (oldSectionCount) {
+          NSIndexSet *indexSet = [[NSIndexSet alloc] initWithIndexesInRange:NSMakeRange(0, oldSectionCount)];
+          [self _deleteSectionsAtIndexSet:indexSet withAnimationOptions:animationOptions];
+        }
+        
+        [self willReloadDataWithSectionCount:sectionCount];
+        
+        // insertSections:
+        NSMutableArray *sections = [NSMutableArray arrayWithCapacity:sectionCount];
+        for (int i = 0; i < sectionCount; i++) {
+          [sections addObject:[[NSMutableArray alloc] init]];
+        }
+        [self _insertSections:sections atIndexSet:sectionIndexes withAnimationOptions:animationOptions];
+      }
+      
+      // insertItemsAtIndexPaths:
+      [self _insertNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
+      
+      if (isFirstBatch) {
+        // -endUpdates
+        [_mainSerialQueue performBlockOnMainThread:^{
+          [_delegate dataController:self endUpdatesAnimated:NO completion:nil];
+        }];
+        isFirstBatch = NO;
+      }
+    }];
+    
+    if (completion) {
+      [_mainSerialQueue performBlockOnMainThread:completion];
+    }
+  });
 }
 
+//TODO Revisit this
 - (void)waitUntilAllUpdatesAreCommitted
 {
   ASDisplayNodeAssertMainThread();
