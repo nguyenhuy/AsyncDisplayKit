@@ -1568,7 +1568,7 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
   return ^{ return node; };
 }
 
-- (NSArray<NSString *> *)supplementaryNodeKindsInDataController:(ASDataController *)dataController sections:(NSIndexSet *)sections
+- (NSArray<NSString *> *)dataController:(ASDataController *)dataController supplementaryNodeKindsInSections:(NSIndexSet *)sections
 {
   if (_asyncDataSourceFlags.collectionNodeSupplementaryElementKindsInSection) {
     NSMutableSet *kinds = [NSMutableSet set];

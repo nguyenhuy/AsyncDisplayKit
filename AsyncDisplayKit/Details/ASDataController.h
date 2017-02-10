@@ -66,8 +66,7 @@ extern NSString * const ASCollectionInvalidUpdateException;
 
 @optional
 
-//TODO check that these methods are optional in ASDataController
-- (NSArray<NSString *> *)supplementaryNodeKindsInDataController:(ASDataController *)dataController sections:(NSIndexSet *)sections;
+- (NSArray<NSString *> *)dataController:(ASDataController *)dataController supplementaryNodeKindsInSections:(NSIndexSet *)sections;
 
 - (NSUInteger)dataController:(ASDataController *)dataController supplementaryNodesOfKind:(NSString *)kind inSection:(NSUInteger)section;
 

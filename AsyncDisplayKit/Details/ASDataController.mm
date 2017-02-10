@@ -25,8 +25,8 @@
 #import <AsyncDisplayKit/ASDisplayNode+Subclasses.h>
 #import <AsyncDisplayKit/NSIndexSet+ASHelpers.h>
 
-//#define LOG(...) NSLog(__VA_ARGS__)
-#define LOG(...)
+#define LOG(...) NSLog(__VA_ARGS__)
+//#define LOG(...)
 
 #define AS_MEASURE_AVOIDED_DATACONTROLLER_WORK 0
 
@@ -77,8 +77,11 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   BOOL _initialReloadDataHasBeenCalled;
 
   struct {
+    unsigned int supplementaryNodeKindsInSections:1;
+    unsigned int supplementaryNodesOfKindInSection:1;
+    unsigned int supplementaryNodeBlockOfKindAtIndexPath:1;
     unsigned int constrainedSizeForSupplementaryNodeOfKindAtIndexPath:1;
-    unsigned int supplementaryNodeKindsInDataControllerInSections:1;
+    unsigned int contextForSection:1;
   } _dataSourceFlags;
 }
 
@@ -95,6 +98,12 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   }
   
   _dataSource = dataSource;
+  
+  _dataSourceFlags.supplementaryNodeKindsInSections = [_dataSource respondsToSelector:@selector(dataController:supplementaryNodeKindsInSections:)];
+  _dataSourceFlags.supplementaryNodesOfKindInSection = [_dataSource respondsToSelector:@selector(dataController:supplementaryNodesOfKind:inSection:)];
+  _dataSourceFlags.supplementaryNodeBlockOfKindAtIndexPath = [_dataSource respondsToSelector:@selector(dataController:supplementaryNodeBlockOfKind:atIndexPath:)];
+  _dataSourceFlags.constrainedSizeForSupplementaryNodeOfKindAtIndexPath = [_dataSource respondsToSelector:@selector(dataController:constrainedSizeForSupplementaryNodeOfKind:atIndexPath:)];
+  _dataSourceFlags.contextForSection = [_dataSource respondsToSelector:@selector(dataController:contextForSection:)];
   
 #if ASEVENTLOG_ENABLE
   _eventLog = eventLog;
@@ -266,7 +275,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
         }
       }
     }];
-  } else {
+  } else if (_dataSourceFlags.supplementaryNodesOfKindInSection) {
     [sections enumerateRangesUsingBlock:^(NSRange range, BOOL * _Nonnull stop) {
       for (NSUInteger sectionIndex = range.location; sectionIndex < NSMaxRange(range); sectionIndex++) {
         NSUInteger itemCount = [_dataSource dataController:self supplementaryNodesOfKind:kind inSection:sectionIndex];
@@ -354,10 +363,15 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
     return NO;
   }
   
-  LOG(@"Populating node contexts of kind: %@, for index paths: %@", kind, allIndexPaths);
+  BOOL isRowKind = [kind isEqualToString:ASDataControllerRowNodeKind];
+  if (!isRowKind && !_dataSourceFlags.supplementaryNodeBlockOfKindAtIndexPath) {
+    // Populating supplementary contexts but data source doesn't support.
+    return NO;
+  }
+  
+  LOG(@"Populating node contexts of kind: %@, for index paths: %@", kind, indexPaths);
   NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray arrayWithCapacity:indexPaths.count];
   for (NSIndexPath *indexPath in indexPaths) {
-    BOOL isRowKind = [kind isEqualToString:ASDataControllerRowNodeKind];
     ASCellNodeBlock nodeBlock;
     if (isRowKind) {
       nodeBlock = [_dataSource dataController:self nodeBlockAtIndexPath:indexPath];
@@ -402,8 +416,8 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 
 - (NSArray<NSString *> *)supplementaryKindsInSections:(NSIndexSet *)sections
 {
-  if (_dataSourceFlags.supplementaryNodeKindsInDataControllerInSections) {
-    return [_dataSource supplementaryNodeKindsInDataController:self sections:sections];
+  if (_dataSourceFlags.supplementaryNodeKindsInSections) {
+    return [_dataSource dataController:self supplementaryNodeKindsInSections:sections];
   }
   
   return @[];
@@ -515,6 +529,10 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 - (void)updateSectionContextsWithChangeSet:(_ASHierarchyChangeSet *)changeSet
 {
   ASDisplayNodeAssertMainThread();
+  
+  if (!_dataSourceFlags.contextForSection) {
+    return;
+  }
   
   for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeDelete]) {
     [_sections removeObjectsAtIndexes:change.indexSet];
