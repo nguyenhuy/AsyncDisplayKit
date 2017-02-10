@@ -265,10 +265,12 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
 
   [self invalidateDataSourceItemCounts];
+  __weak id<ASTraitEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
   NSUInteger sectionCount = [self itemCountsFromDataSource].size();
   NSIndexSet *sectionIndexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
-  NSArray<ASIndexedNodeContext *> *newContexts = [self _populateNodeContextsFromDataSourceWithSections:sectionIndexes environment:];
-
+  //TODO this also insert the contexts. Revisit it won't you?
+  NSArray<ASIndexedNodeContext *> *newContexts = [self _populateNodeContextsFromDataSourceWithSections:sectionIndexes environment:environment];
+  
   // Update _nodeContexts
   NSMutableArray *allContexts = _nodeContexts[ASDataControllerRowNodeKind];
   [allContexts removeAllObjects];
@@ -279,8 +281,22 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allContexts, nodeIndexPaths, newContexts);
 
   // Allow subclasses to perform setup before going into the edit transaction
-  [self prepareForReloadDataWithSectionCount:sectionCount];
-  
+//  [self prepareForReloadDataWithSectionCount:sectionCount];
+  {
+    ASDisplayNodeAssertMainThread();
+    NSIndexSet *sections = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, newSectionCount)];
+    
+    [_sections removeAllObjects];
+    [self _populatePendingSectionsFromDataSource:sections];
+    
+    for (NSString *kind in [self supplementaryKindsInSections:sections]) {
+      LOG(@"Populating elements of kind: %@", kind);
+      NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray array];
+      [self _populateSupplementaryNodesOfKind:kind withSections:sections mutableContexts:contexts];
+      _pendingNodeContexts[kind] = contexts;
+    }
+  }
+
   dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
     LOG(@"Edit Transaction - reloadData");
     
@@ -708,6 +724,9 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
                           animated:(BOOL)animated
 {
   ASDisplayNodeAssertMainThread();
+  
+  //TODO handle original deletes and inserts
+  //TODO handle reloads, moves
   
   [_delegate dataControllerBeginUpdates:self];
   

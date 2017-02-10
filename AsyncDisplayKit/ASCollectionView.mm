@@ -116,6 +116,7 @@ static NSString * const kReuseIdentifier = @"_ASCollectionReuseIdentifier";
    * The number of items after the update (1) must be equal to the number of items before the update (1) plus or minus the items added and removed (1 added, 0 removed).`
    * The collection view never queried your data source before the update to see that it actually had 0 items.
    */
+  //TODO revisit this
   BOOL _superIsPendingDataLoad;
 
   /**

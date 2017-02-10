@@ -29,6 +29,7 @@
 
 @interface ASRangeController ()
 {
+  //TODO revisit this
   BOOL _rangeIsValid;
   BOOL _needsRangeUpdate;
   BOOL _layoutControllerImplementsSetVisibleIndexPaths;
