@@ -77,13 +77,6 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   BOOL _initialReloadDataHasBeenCalled;
 
   struct {
-    unsigned int didInsertNodes:1;
-    unsigned int didDeleteNodes;
-    unsigned int didInsertSections;
-    unsigned int didDeleteSections;
-  } _delegateFlags;
-  
-  struct {
     unsigned int constrainedSizeForSupplementaryNodeOfKindAtIndexPath:1;
     unsigned int supplementaryNodeKindsInDataControllerInSections:1;
   } _dataSourceFlags;
@@ -137,12 +130,6 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   }
   
   _delegate = delegate;
-  
-  // Interrogate our delegate to understand its capabilities, optimizing away expensive respondsToSelector: calls later.
-  _delegateFlags.didInsertNodes     = [_delegate respondsToSelector:@selector(dataController:didInsertNodes:atIndexPaths:withAnimationOptions:)];
-  _delegateFlags.didDeleteNodes     = [_delegate respondsToSelector:@selector(dataController:didDeleteNodes:atIndexPaths:withAnimationOptions:)];
-  _delegateFlags.didInsertSections  = [_delegate respondsToSelector:@selector(dataController:didInsertSectionsAtIndexSet:withAnimationOptions:)];
-  _delegateFlags.didDeleteSections  = [_delegate respondsToSelector:@selector(dataController:didDeleteSectionsAtIndexSet:withAnimationOptions:)];
 }
 
 + (NSUInteger)parallelProcessorCount
@@ -246,117 +233,6 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 
 #pragma mark - Initial Load & Full Reload (External API)
 
-- (void)reloadDataWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions completion:(void (^)())completion
-{
-  [self _reloadDataWithAnimationOptions:animationOptions completion:completion];
-}
-
-- (void)reloadDataImmediatelyWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
-{
-  [self _reloadDataWithAnimationOptions:animationOptions completion:nil];
-  [self waitUntilAllUpdatesAreCommitted];
-}
-
-- (void)_reloadDataWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions completion:(void (^)())completion
-{
-  ASDisplayNodeAssertMainThread();
-  
-  _initialReloadDataHasBeenCalled = YES;
-  dispatch_group_wait(_editingTransactionGroup, DISPATCH_TIME_FOREVER);
-
-  [self invalidateDataSourceItemCounts];
-  __weak id<ASTraitEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
-  NSUInteger sectionCount = [self itemCountsFromDataSource].size();
-  NSIndexSet *sectionIndexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
-  //TODO this also insert the contexts. Revisit it won't you?
-  NSArray<ASIndexedNodeContext *> *newContexts = [self _populateNodeContextsFromDataSourceWithSections:sectionIndexes environment:environment];
-  
-  // Update _nodeContexts
-  NSMutableArray *allContexts = _nodeContexts[ASDataControllerRowNodeKind];
-  [allContexts removeAllObjects];
-  NSArray *nodeIndexPaths = [ASIndexedNodeContext indexPathsFromContexts:newContexts];
-  for (int i = 0; i < sectionCount; i++) {
-    [allContexts addObject:[[NSMutableArray alloc] init]];
-  }
-  ASInsertElementsIntoMultidimensionalArrayAtIndexPaths(allContexts, nodeIndexPaths, newContexts);
-
-  // Allow subclasses to perform setup before going into the edit transaction
-//  [self prepareForReloadDataWithSectionCount:sectionCount];
-  {
-    ASDisplayNodeAssertMainThread();
-    NSIndexSet *sections = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, newSectionCount)];
-    
-    [_sections removeAllObjects];
-    [self _populatePendingSectionsFromDataSource:sections];
-    
-    for (NSString *kind in [self supplementaryKindsInSections:sections]) {
-      LOG(@"Populating elements of kind: %@", kind);
-      NSMutableArray<ASIndexedNodeContext *> *contexts = [NSMutableArray array];
-      [self _populateSupplementaryNodesOfKind:kind withSections:sections mutableContexts:contexts];
-      _pendingNodeContexts[kind] = contexts;
-    }
-  }
-
-  dispatch_group_async(_editingTransactionGroup, _editingTransactionQueue, ^{
-    LOG(@"Edit Transaction - reloadData");
-    
-    /**
-     * Leave the current data in the collection view until the first batch of nodes are laid out.
-     * Once the first batch is laid out, in one operation, replace all the sections and insert
-     * the first batch of items.
-     *
-     * We previously would replace all the sections immediately, and then start adding items as they
-     * were laid out. This resulted in more traffic to the UICollectionView and it also caused all the
-     * section headers to bunch up until the items come and fill out the sections.
-     */
-    __block BOOL isFirstBatch = YES;
-    [self batchLayoutNodesFromContexts:newContexts batchSize:0 batchCompletion:^(NSArray<ASCellNode *> *nodes, NSArray<NSIndexPath *> *indexPaths) {
-      
-      //TODO Main thread here
-      
-      if (isFirstBatch) {
-        // -beginUpdates
-        [_mainSerialQueue performBlockOnMainThread:^{
-          [_delegate dataControllerBeginUpdates:self];
-          [_delegate dataControllerWillDeleteAllData:self];
-        }];
-        
-        // deleteSections:
-        // Remove everything that existed before the reload, now that we're ready to insert replacements
-        NSUInteger oldSectionCount = [_editingNodes[ASDataControllerRowNodeKind] count];
-        if (oldSectionCount) {
-          NSIndexSet *indexSet = [[NSIndexSet alloc] initWithIndexesInRange:NSMakeRange(0, oldSectionCount)];
-          [self _deleteSectionsAtIndexSet:indexSet withAnimationOptions:animationOptions];
-        }
-        
-        [self willReloadDataWithSectionCount:sectionCount];
-        
-        // insertSections:
-        NSMutableArray *sections = [NSMutableArray arrayWithCapacity:sectionCount];
-        for (int i = 0; i < sectionCount; i++) {
-          [sections addObject:[[NSMutableArray alloc] init]];
-        }
-        [self _insertSections:sections atIndexSet:sectionIndexes withAnimationOptions:animationOptions];
-      }
-      
-      // insertItemsAtIndexPaths:
-      [self _insertNodes:nodes atIndexPaths:indexPaths withAnimationOptions:animationOptions];
-      
-      if (isFirstBatch) {
-        // -endUpdates
-        [_mainSerialQueue performBlockOnMainThread:^{
-          [_delegate dataController:self endUpdatesAnimated:NO completion:nil];
-        }];
-        isFirstBatch = NO;
-      }
-    }];
-    
-    if (completion) {
-      [_mainSerialQueue performBlockOnMainThread:completion];
-    }
-  });
-}
-
 //TODO Revisit this
 - (void)waitUntilAllUpdatesAreCommitted
 {
@@ -459,6 +335,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   return [self _populateNodeContextsOfKind:kind atIndexPaths:indexPaths environment:environment];
 }
 
+//TODO revisit the naming or don't insert
 /**
  * Populates and inserts new node contexts of a certain kind at some index paths
  *
@@ -561,7 +438,10 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
    * See ASUICollectionViewTests.testThatIssuingAnUpdateBeforeInitialReloadIsUnacceptable
    * For the issue that UICollectionView has that we're choosing to workaround.
    */
-  if (!self.initialReloadDataHasBeenCalled) {
+  if (changeSet.reloadDataChange != nil) {
+    _initialReloadDataHasBeenCalled = YES;
+  }
+  if (!_initialReloadDataHasBeenCalled) {
     if (batchCompletion != nil) {
       batchCompletion(YES);
     }
@@ -663,6 +543,18 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   ASDisplayNodeAssertMainThread();
 
   __weak id<ASTraitEnvironment> environment = [self.environmentDelegate dataControllerEnvironment];
+  
+  if (changeSet.reloadDataChange != nil) {
+    // Clear all contexts
+    [_nodeContexts removeAllObjects];
+    
+    // Repopulate all contexts
+    NSUInteger sectionCount = [self itemCountsFromDataSource].size();
+    NSIndexSet *sectionIndexes = [NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, sectionCount)];
+    // Return immediately because reloadData can't be used in conjuntion with other updates.
+    return [self _insertSections:sectionIndexes environment:environment];
+  }
+  
   BOOL result = NO;
   
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeDelete]) {
@@ -683,26 +575,7 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   }
   
   for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeInsert]) {
-    NSIndexSet *sectionIndexes = change.indexSet;
-    NSMutableArray<NSString *> *kinds = [NSMutableArray arrayWithObject:ASDataControllerRowNodeKind];
-    [kinds addObjectsFromArray:[self supplementaryKindsInSections:sectionIndexes]];
-    
-    for (NSString *kind in kinds) {
-      // Step 1: Ensure _nodeContexts has enough space for new contexts
-      NSMutableArray *nodeContextsOfKind = _nodeContexts[kind];
-      if (nodeContextsOfKind == nil) {
-        nodeContextsOfKind = [NSMutableArray array];
-        _nodeContexts[kind] = nodeContextsOfKind;
-      }
-      NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sectionIndexes.count];
-      for (NSUInteger i = 0; i < sectionIndexes.count; i++) {
-        [sectionArray addObject:[NSMutableArray array]];
-      }
-      [nodeContextsOfKind insertObjects:sectionArray atIndexes:sectionIndexes];
-      // Step 2: Populate new contexts for all sections
-      BOOL populated = [self _populateNodeContextsOfKind:kind forSections:sectionIndexes environment:environment];
-      result = populated ?: result;
-    }
+    [self _insertSections:change.indexSet environment:environment];
   }
   
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeInsert]) {
@@ -718,6 +591,33 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   return result;
 }
 
+// TODO revisit naming
+- (BOOL)_insertSections:(NSIndexSet *)sectionIndexes environment:(id<ASTraitEnvironment>)environment
+{
+  BOOL result = NO;
+  NSMutableArray<NSString *> *kinds = [NSMutableArray arrayWithObject:ASDataControllerRowNodeKind];
+  [kinds addObjectsFromArray:[self supplementaryKindsInSections:sectionIndexes]];
+  
+  for (NSString *kind in kinds) {
+    // Step 1: Ensure _nodeContexts has enough space for new contexts
+    NSMutableArray *nodeContextsOfKind = _nodeContexts[kind];
+    if (nodeContextsOfKind == nil) {
+      nodeContextsOfKind = [NSMutableArray array];
+      _nodeContexts[kind] = nodeContextsOfKind;
+    }
+    NSMutableArray *sectionArray = [NSMutableArray arrayWithCapacity:sectionIndexes.count];
+    for (NSUInteger i = 0; i < sectionIndexes.count; i++) {
+      [sectionArray addObject:[NSMutableArray array]];
+    }
+    [nodeContextsOfKind insertObjects:sectionArray atIndexes:sectionIndexes];
+    // Step 2: Populate new contexts for all sections
+    BOOL populated = [self _populateNodeContextsOfKind:kind forSections:sectionIndexes environment:environment];
+    result = populated ?: result;
+  }
+  
+  return result;
+}
+
 - (void)forwardChangeSetToDelegate:(_ASHierarchyChangeSet *)changeSet
                   insertedRowNodes:(id _Nullable)insertedRowNodes
                    deletedRowNodes:(id _Nullable)deletedRowNodes
@@ -725,39 +625,30 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
 {
   ASDisplayNodeAssertMainThread();
   
-  //TODO handle original deletes and inserts
+  //TODO handle original deletes and inserts, be aware of potential invalid index paths in those original changes
   //TODO handle reloads, moves
   
   [_delegate dataControllerBeginUpdates:self];
   
+  if (changeSet.reloadDataChange != nil) {
+    [_delegate dataControllerWillDeleteAllData:self];
+    [_delegate dataControllerDidReloadData:self];
+  }
+  
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeDelete]) {
-    if (_delegateFlags.didDeleteNodes) {
-      [_delegate dataController:self
-                 didDeleteNodes:deletedRowNodes[change]
-                   atIndexPaths:change.indexPaths
-           withAnimationOptions:change.animationOptions];
-    }
+    [_delegate dataController:self didDeleteNodes:deletedRowNodes[change] atIndexPaths:change.indexPaths withAnimationOptions:change.animationOptions];
   }
   
   for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeDelete]) {
-    if (_delegateFlags.didDeleteSections) {
-      [_delegate dataController:self didDeleteSectionsAtIndexSet:change.indexSet withAnimationOptions:change.animationOptions];
-    }
+    [_delegate dataController:self didDeleteSectionsAtIndexSet:change.indexSet withAnimationOptions:change.animationOptions];
   }
   
   for (_ASHierarchySectionChange *change in [changeSet sectionChangesOfType:_ASHierarchyChangeTypeInsert]) {
-    if (_delegateFlags.didInsertSections) {
-      [_delegate dataController:self didInsertSectionsAtIndexSet:change.indexSet withAnimationOptions:change.animationOptions];
-    }
+    [_delegate dataController:self didInsertSectionsAtIndexSet:change.indexSet withAnimationOptions:change.animationOptions];
   }
   
   for (_ASHierarchyItemChange *change in [changeSet itemChangesOfType:_ASHierarchyChangeTypeInsert]) {
-    if (_delegateFlags.didInsertNodes) {
-      [_delegate dataController:self
-                 didInsertNodes:insertedRowNodes[change]
-                   atIndexPaths:change.indexPaths
-           withAnimationOptions:change.animationOptions];
-    }
+    [_delegate dataController:self didInsertNodes:insertedRowNodes[change] atIndexPaths:change.indexPaths withAnimationOptions:change.animationOptions];
   }
   
   void (^batchCompletion)(BOOL) = changeSet.completionHandler;
@@ -862,8 +753,8 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
     return nil;
   }
   
-  NSArray *contexts = _nodeContexts[ASDataControllerRowNodeKind];
-  ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(contexts, indexPath);
+  ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(_nodeContexts[ASDataControllerRowNodeKind],
+                                                                    indexPath);
   return context.nodeIfAllocated;
 }
 
@@ -874,8 +765,8 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
     return nil;
   }
 
-  NSArray *completedNodes = _completedNodeContexts[ASDataControllerRowNodeKind];
-  ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(completedNodes, indexPath);
+  ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(_completedNodeContexts[ASDataControllerRowNodeKind],
+                                                                    indexPath);
   // Note: Node may not be allocated and laid out yet (e.g node virtualization or same size optimization)
   // TODO: Force synchronous allocation and layout pass in that case?
   return context.node;
@@ -955,6 +846,28 @@ typedef void (^ASDataControllerCompletionBlock)(NSArray<ASIndexedNodeContext *> 
   // TODO Revisit this after native move support. Need to update **both**
   // _nodeContexts and _completedNodeContexts through a proper threading tunnel.
   ASMoveElementInTwoDimensionalArray(_nodeContexts[ASDataControllerRowNodeKind], indexPath, newIndexPath);
+}
+
+#pragma mark - External supplementary store and section context querying
+
+- (ASCellNode *)supplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath
+{
+  ASDisplayNodeAssertMainThread();
+  if (kind == nil || indexPath == nil) {
+    return nil;
+  }
+  
+  ASIndexedNodeContext *context = ASGetElementInTwoDimensionalArray(_completedNodeContexts[kind], indexPath);
+  // Note: Node may not be allocated and laid out yet (e.g node virtualization or same size optimization)
+  // TODO: Force synchronous allocation and layout pass in that case?
+  return context.node;
+}
+
+- (id<ASSectionContext>)contextForSection:(NSInteger)section
+{
+  ASDisplayNodeAssertMainThread();
+  ASDisplayNodeAssertTrue(section >= 0 && section < _sections.count);
+  return _sections[section].context;
 }
 
 @end

@@ -97,6 +97,11 @@ extern NSString * const ASCollectionInvalidUpdateException;
 - (void)dataController:(ASDataController *)dataController endUpdatesAnimated:(BOOL)animated completion:(void (^ _Nullable)(BOOL))completion;
 
 /**
+ Called for reload data
+ */
+- (void)dataControllerDidReloadData:(ASDataController *)dataController;
+
+/**
  Called for insertion of elements.
  */
 - (void)dataController:(ASDataController *)dataController didInsertNodes:(NSArray<ASCellNode *> *)nodes atIndexPaths:(NSArray<NSIndexPath *> *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions;
@@ -187,10 +192,6 @@ extern NSString * const ASCollectionInvalidUpdateException;
  */
 - (void)relayoutAllNodes;
 
-- (void)reloadDataWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions completion:(void (^ _Nullable)())completion;
-
-- (void)reloadDataImmediatelyWithAnimationOptions:(ASDataControllerAnimationOptions)animationOptions;
-
 - (void)waitUntilAllUpdatesAreCommitted;
 
 /** @name Data Querying */
@@ -224,6 +225,10 @@ extern NSString * const ASCollectionInvalidUpdateException;
  * Direct access to the nodes that have completed calculation and layout
  */
 - (NSArray<NSArray <ASCellNode *> *> *)completedNodes;
+
+- (nullable ASCellNode *)supplementaryNodeOfKind:(NSString *)kind atIndexPath:(NSIndexPath *)indexPath;
+
+- (nullable id<ASSectionContext>)contextForSection:(NSInteger)section;
 
 /**
  * Immediately move this item. This is called by ASTableView when the user has finished an interactive

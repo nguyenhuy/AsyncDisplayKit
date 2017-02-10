@@ -501,6 +501,13 @@ static UIApplicationState __ApplicationState = UIApplicationStateActive;
   [_delegate rangeController:self didEndUpdatesAnimated:animated completion:completion];
 }
 
+- (void)dataControllerDidReloadData:(ASDataController *)dataController
+{
+  ASDisplayNodeAssertMainThread();
+  _rangeIsValid = NO;
+  [_delegate rangeControllerDidReloadData:self];
+}
+
 - (void)dataController:(ASDataController *)dataController didInsertNodes:(NSArray *)nodes atIndexPaths:(NSArray *)indexPaths withAnimationOptions:(ASDataControllerAnimationOptions)animationOptions
 {
   ASDisplayNodeAssert(nodes.count == indexPaths.count, @"Invalid index path");
